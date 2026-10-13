@@ -1,0 +1,44 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+
+# Test / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Debug crops and smoke-test output
+debug/
+smoke-results/
+*.jsonl
+
+# Model weights downloaded at first run
+weights/
+*.pt
+*.ts
+*.safetensors
+*.onnx
+
+# Local images and SKU gallery (large / machine-specific; see README)
+reference-images/
+SAMPLE IMAGES/
+gallery/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
