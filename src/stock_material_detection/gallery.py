@@ -51,6 +51,7 @@ CACHE_NAME = ".embeddings.npz"
 WORDMARK_FILE = "wordmark.txt"
 LETTERBOX_FILL = (128, 128, 128)
 EMBED_BATCH = 16
+QUARTER_TURNS = (None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -198,13 +199,22 @@ class Gallery:
         )
 
     def embed(self, crop: np.ndarray) -> np.ndarray:
-        return self.embedder.embed([bgr_to_pil(crop)])[0]
+        """One row per quarter turn of ``crop``.
 
-    def match(self, vector: np.ndarray, hist: np.ndarray | None = None) -> Match | None:
-        """Best SKU by max cosine over its references. ``None`` if the gallery is empty."""
+        Items lie in any direction but references are upright, and SigLIP is
+        not rotation invariant.
+        """
+        views = [crop if turn is None else cv2.rotate(crop, turn) for turn in QUARTER_TURNS]
+        return self.embedder.embed([bgr_to_pil(view) for view in views])
+
+    def match(self, vectors: np.ndarray, hist: np.ndarray | None = None) -> Match | None:
+        """Best SKU by max cosine over its references and the query's rows.
+
+        ``None`` if the gallery is empty.
+        """
         if self.empty:
             return None
-        sims = self.vectors @ vector
+        sims = (self.vectors @ np.atleast_2d(vectors).T).max(axis=1)
         best: dict[str, int] = {}
         for idx, sku in enumerate(self.skus):
             if sku not in best or sims[idx] > sims[best[sku]]:

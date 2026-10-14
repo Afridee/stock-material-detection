@@ -33,10 +33,12 @@ weights/
 *.safetensors
 *.onnx
 
-# Local images and SKU gallery (large / machine-specific; see README)
+# Local images (large / machine-specific; see README)
 reference-images/
 SAMPLE IMAGES/
-gallery/
+
+# Rebuilt when gallery reference files change
+gallery/.embeddings.npz
 
 # OS / editor
 .DS_Store
