@@ -18,6 +18,8 @@ none yet). Raise or lower them once a gallery and a labeled audit set exist.
     Top-1 minus top-2 SKU cosine below this is flagged.
 ``MIN_COLOR_SIMILARITY``
     Lighter histogram intersection with the matched SKU below this is flagged.
+``BAND_TIE_RATIO`` (crops.py)
+    Stick ends closer than this are both matched. Different SKUs flag the stick.
 """
 
 from __future__ import annotations
@@ -38,18 +40,18 @@ from pydantic import BaseModel, Field
 from stock_material_detection.crops import (
     color_histogram,
     crop_box,
-    filter_band,
+    filter_bands,
     polygon_mask,
 )
 from stock_material_detection.detector import MIN_SCORE, Detection, Detector
-from stock_material_detection.gallery import Gallery, WordmarkReader, ocr_enabled
+from stock_material_detection.gallery import Gallery, Match, WordmarkReader, ocr_enabled
 from stock_material_detection.orient import load_oriented, to_bgr
 
 logger = logging.getLogger(__name__)
 
 UNKNOWN = "unknown"
 REVIEW_SCORE = 0.30
-MIN_SIMILARITY = 0.85
+MIN_SIMILARITY = 0.70
 MIN_MARGIN = 0.02
 MIN_COLOR_SIMILARITY = 0.40
 INSIDE_PACK_OVERLAP = 0.6
@@ -176,6 +178,24 @@ def get_ocr() -> WordmarkReader | None:
     return _ocr
 
 
+def _resolve_end_matches(
+    matches: list[Match],
+    min_similarity: float,
+) -> tuple[Match | None, bool]:
+    """Best end by similarity, and whether two named ends disagree on SKU.
+
+    An end names a SKU only at or above ``min_similarity``. A weaker other
+    end does not count as a disagreement.
+    """
+    if not matches:
+        return None, False
+    best = max(matches, key=lambda match: match.similarity)
+    disagree = best.similarity >= min_similarity and any(
+        match.similarity >= min_similarity and match.sku != best.sku for match in matches
+    )
+    return best, disagree
+
+
 def _identify(
     item: Item,
     det: Detection,
@@ -190,20 +210,38 @@ def _identify(
     crop, offset = crop_box(image, det.box)
     mask = polygon_mask(crop.shape, det.polygon, offset) if det.polygon is not None else None
 
-    query = crop
     hist = None
+    ends_disagree = False
     if det.category == "cigarette_stick":
-        query = filter_band(crop, mask)
-    elif det.category == "lighter":
-        hist = color_histogram(crop, mask)
+        queries = filter_bands(crop, mask)
+    else:
+        queries = [crop]
+        if det.category == "lighter":
+            hist = color_histogram(crop, mask)
 
     if debug is not None:
         out_dir, index = debug
         cv2.imwrite(str(out_dir / f"{index:02d}_{det.category}.jpg"), crop)
-        if query is not crop:
-            cv2.imwrite(str(out_dir / f"{index:02d}_{det.category}_band.jpg"), query)
+        if det.category == "cigarette_stick":
+            for suffix, band in zip(("", "_alt"), queries):
+                if band is crop:
+                    continue
+                cv2.imwrite(str(out_dir / f"{index:02d}_{det.category}_band{suffix}.jpg"), band)
 
-    match = None if gallery.empty or query.size == 0 else gallery.match(gallery.embed(query), hist)
+    queries = [query for query in queries if query.size]
+    if gallery.empty or not queries:
+        item.flagged = True
+        return
+
+    if det.category == "cigarette_stick" and len(queries) > 1:
+        found = [gallery.match(gallery.embed(band)) for band in queries]
+        match, ends_disagree = _resolve_end_matches(
+            [hit for hit in found if hit is not None],
+            min_similarity,
+        )
+    else:
+        match = gallery.match(gallery.embed(queries[0]), hist)
+
     weak = det.score < REVIEW_SCORE
     if match is None:
         item.flagged = True
@@ -220,7 +258,7 @@ def _identify(
     off_color = match.color_similarity is not None and match.color_similarity < MIN_COLOR_SIMILARITY
     if ocr is not None and det.category in OCR_CATEGORIES:
         item.wordmark = ocr.check(crop, gallery.wordmark(match.sku))
-    item.flagged = weak or thin_gap or off_color or item.wordmark == "mismatch"
+    item.flagged = weak or thin_gap or off_color or ends_disagree or item.wordmark == "mismatch"
 
 
 def run_detect(

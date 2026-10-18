@@ -37,7 +37,7 @@ uv run python -m stock_material_detection detect --image photo.jpg --debug-dir d
 | `--image PATH` | Required input photo |
 | `--pretty` | Pretty-print JSON |
 | `--min-score F` | Drop detector boxes below this. Default `0.10` |
-| `--min-similarity F` | Gallery cosine below this gives `sku: unknown`. Default `0.85` |
+| `--min-similarity F` | Gallery cosine below this gives `sku: unknown`. Default `0.70` |
 | `--gallery DIR` | Gallery folder. Default `gallery/` or `STOCK_GALLERY_DIR` |
 | `--debug-dir DIR` | Write `oriented.jpg` (the pixels the detector saw), `boxes.jpg` (overlay), each crop, and each stick filter band |
 
@@ -76,7 +76,7 @@ A detection is flagged when any of these hold. The values are conservative start
 | Constant | Default | Flags when |
 |----------|---------|------------|
 | `REVIEW_SCORE` | `0.30` | Detector score is below it |
-| `MIN_SIMILARITY` | `0.85` | Best gallery cosine is below it (also sets `unknown`) |
+| `MIN_SIMILARITY` | `0.70` | Best gallery cosine is below it (also sets `unknown`) |
 | `MIN_MARGIN` | `0.02` | Top SKU beats the runner-up SKU by less than this |
 | `MIN_COLOR_SIMILARITY` | `0.40` | Lighter histogram overlap with the matched SKU is below it |
 | wordmark | | OCR read Latin text that does not contain the SKU's wordmark |

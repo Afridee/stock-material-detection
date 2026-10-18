@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from stock_material_detection.pipeline import UNKNOWN, Item, aggregate, mark_inside_packs
+from stock_material_detection.gallery import Match
+from stock_material_detection.pipeline import (
+    UNKNOWN,
+    Item,
+    _resolve_end_matches,
+    aggregate,
+    mark_inside_packs,
+)
 
 
 def _item(category: str, box, sku: str = "brand_a", flagged: bool = False) -> Item:
@@ -83,6 +90,44 @@ def test_one_flagged_detection_flags_its_line() -> None:
     counts = _counts(items)
     assert counts[("brand_a", "cigarette_pack")] == (2, True)
     assert counts[("brand_a", "lighter")] == (1, False)
+
+
+def _match(sku: str, similarity: float) -> Match:
+    return Match(sku=sku, similarity=similarity, runner_up=similarity - 0.1)
+
+
+def test_disagreeing_stick_ends_keep_the_higher_score() -> None:
+    best, disagree = _resolve_end_matches(
+        [_match("black_diamond", 0.80), _match("avon_blue", 0.88)],
+        min_similarity=0.70,
+    )
+
+    assert best is not None
+    assert best.sku == "avon_blue"
+    assert best.similarity == 0.88
+    assert disagree
+
+
+def test_a_weak_other_end_is_not_a_disagreement() -> None:
+    best, disagree = _resolve_end_matches(
+        [_match("avon_blue", 0.88), _match("black_diamond", 0.60)],
+        min_similarity=0.70,
+    )
+
+    assert best is not None
+    assert best.sku == "avon_blue"
+    assert not disagree
+
+
+def test_agreeing_stick_ends_are_not_flagged() -> None:
+    best, disagree = _resolve_end_matches(
+        [_match("black_diamond", 0.84), _match("black_diamond", 0.81)],
+        min_similarity=0.70,
+    )
+
+    assert best is not None
+    assert best.sku == "black_diamond"
+    assert not disagree
 
 
 def test_same_sku_splits_by_category() -> None:

@@ -11,6 +11,7 @@ from stock_material_detection.crops import (
     color_histogram,
     crop_box,
     filter_band,
+    filter_bands,
     histogram_similarity,
 )
 
@@ -51,6 +52,7 @@ def test_filter_band_keeps_one_end(angle: float, filter_at_start: bool) -> None:
     image = _synthetic_stick(angle, filter_at_start)
 
     band = filter_band(image)
+    bands = filter_bands(image)
 
     height, width = band.shape[:2]
     expected = STICK_LENGTH * FILTER_BAND_FRACTION
@@ -59,6 +61,25 @@ def test_filter_band_keeps_one_end(angle: float, filter_at_start: bool) -> None:
     assert abs(height - STICK_WIDTH) <= 8
     # The colored filter end, not the white paper shaft.
     assert _saturation(band) > 80
+    assert len(bands) == 1
+    assert _saturation(bands[0]) > 80
+
+
+def test_filter_bands_keeps_both_ends_when_variation_ties() -> None:
+    image = np.full((80, 400, 3), 40, dtype=np.uint8)
+    stick = np.full((20, 300, 3), 230, dtype=np.uint8)
+    noise = np.arange(20 * 90 * 3, dtype=np.uint8).reshape(20, 90, 3) % 12
+    textured = np.clip(stick[:, :90].astype(np.int16) - noise, 0, 255).astype(np.uint8)
+    stick[:, :90] = textured
+    stick[:, -90:] = textured
+    image[30:50, 50:350] = stick
+
+    bands = filter_bands(image)
+
+    assert len(bands) == 2
+    assert bands[0].shape == bands[1].shape
+    assert not np.array_equal(bands[0], bands[1])
+    assert filter_band(image).shape == bands[0].shape
 
 
 def test_crop_box_pads_and_clamps() -> None:

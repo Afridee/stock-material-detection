@@ -14,6 +14,13 @@ BOX_PADDING = 0.04
 FILTER_BAND_FRACTION = 0.3
 """Share of the stick length kept at the printed filter end."""
 
+BAND_TIE_RATIO = 0.05
+"""Relative variation gap below which both stick ends are kept.
+
+``abs(left - right) / max(left, right)``. A pale filter and a plain shaft
+can fall inside this, so the caller matches both instead of guessing.
+"""
+
 HIST_BINS = (18, 8)
 """Hue × saturation bins for the lighter color histogram."""
 
@@ -64,26 +71,21 @@ def _color_variation(region: np.ndarray) -> float:
     return float(lab.std(axis=0).sum())
 
 
-def filter_band(
+def _oriented_ends(
     crop: np.ndarray,
-    mask: np.ndarray | None = None,
-    fraction: float = FILTER_BAND_FRACTION,
-) -> np.ndarray:
-    """The printed filter end of one stick, rotated horizontal.
+    mask: np.ndarray,
+    fraction: float,
+) -> tuple[np.ndarray, np.ndarray, float, float] | None:
+    """Both stick ends, each with its tip facing right, plus their variation.
 
-    ``cv2.minAreaRect`` on the stick outline gives its axis. The stick is
-    rotated so that axis is horizontal, then the end with more color
-    variation is kept. The white paper shaft is dropped. The kept end is
-    flipped if needed so the tip always faces right.
+    ``None`` when the outline is missing or too small to orient.
     """
-    if mask is None:
-        mask = foreground_mask(crop)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
-        return crop
+        return None
     (cx, cy), (w, h), angle = cv2.minAreaRect(max(contours, key=cv2.contourArea))
     if w < 2 or h < 2:
-        return crop
+        return None
     if w < h:
         w, h = h, w
         angle += 90.0
@@ -99,11 +101,42 @@ def filter_band(
     stick = cv2.getRectSubPix(rotated, (int(round(w)), int(round(h))), center)
 
     band_len = max(1, int(round(stick.shape[1] * fraction)))
-    left = stick[:, :band_len]
-    right = stick[:, -band_len:]
-    if _color_variation(left) > _color_variation(right):
-        return np.ascontiguousarray(left[:, ::-1])
-    return np.ascontiguousarray(right)
+    left = np.ascontiguousarray(stick[:, :band_len][:, ::-1])
+    right = np.ascontiguousarray(stick[:, -band_len:])
+    return left, right, _color_variation(left), _color_variation(right)
+
+
+def filter_bands(
+    crop: np.ndarray,
+    mask: np.ndarray | None = None,
+    fraction: float = FILTER_BAND_FRACTION,
+    tie_ratio: float = BAND_TIE_RATIO,
+) -> list[np.ndarray]:
+    """Filter end of one stick, or both ends when their variation is a tie.
+
+    The stick is rotated horizontal. Each kept end is flipped so its tip
+    faces right. The higher-variation end is first. Both are returned when
+    ``abs(left - right) / max(left, right)`` is below ``tie_ratio``.
+    """
+    if mask is None:
+        mask = foreground_mask(crop)
+    ends = _oriented_ends(crop, mask, fraction)
+    if ends is None:
+        return [crop]
+    left, right, left_var, right_var = ends
+    ordered = [left, right] if left_var > right_var else [right, left]
+    peak = max(left_var, right_var)
+    tie = peak == 0 or abs(left_var - right_var) / peak < tie_ratio
+    return ordered if tie else ordered[:1]
+
+
+def filter_band(
+    crop: np.ndarray,
+    mask: np.ndarray | None = None,
+    fraction: float = FILTER_BAND_FRACTION,
+) -> np.ndarray:
+    """The stronger filter end of one stick. See ``filter_bands`` for a tie."""
+    return filter_bands(crop, mask, fraction)[0]
 
 
 def color_histogram(crop: np.ndarray, mask: np.ndarray | None = None) -> np.ndarray:
