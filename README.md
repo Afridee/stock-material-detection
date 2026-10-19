@@ -36,7 +36,7 @@ uv run python -m stock_material_detection detect --image photo.jpg --debug-dir d
 |------|-------------|
 | `--image PATH` | Required input photo |
 | `--pretty` | Pretty-print JSON |
-| `--min-score F` | Drop detector boxes below this. Default `0.10` |
+| `--min-score F` | Drop detector boxes below this. Default `0.05` |
 | `--min-similarity F` | Gallery cosine below this gives `sku: unknown`. Default `0.70` |
 | `--gallery DIR` | Gallery folder. Default `gallery/` or `STOCK_GALLERY_DIR` |
 | `--debug-dir DIR` | Write `oriented.jpg` (the pixels the detector saw), `boxes.jpg` (overlay), each crop, and each stick filter band |
@@ -62,6 +62,25 @@ Exit code is `0` on success and `1` when the image is unreadable.
 - `score` is the detector score. `similarity` is the best gallery cosine, `null` when the gallery is empty.
 - Stick detections also carry `insidePack`. Lighters carry `colorSimilarity` once matched. With OCR on, packs and lighters carry `wordmark`: `confirmed`, `mismatch`, or absent when no Latin text was readable.
 - `failReasons: ["unreadable_image"]` appears only when the file is not a readable image.
+
+### Client PDF report
+
+Runs `detect` on photo folders, writes HTML in a temp directory, converts it to PDF with Chrome, and keeps only the PDF. Each photo gets an annotated box overlay, the count lines per SKU, every detection with its crop, and a plain-language reason for each review flag. The front pages hold totals per SKU across all photos, the most common review reasons, and the thresholds used.
+
+```bash
+uv run python scripts/generate_client_report.py
+```
+
+Defaults: `SAMPLE IMAGES/` and `totest/` (whichever exist), output `reports/stock_material_detection_report.pdf`.
+
+```bash
+uv run python scripts/generate_client_report.py \
+  --dir "/path/to/photos" \
+  --min-score 0.05 --min-similarity 0.70 \
+  --output reports/stock_material_detection_report.pdf
+```
+
+`--dir` can be repeated. `--min-score`, `--min-similarity`, and `--gallery` mean the same as on `detect`. Requires Google Chrome for the HTML → PDF step.
 
 ## Counting rules
 

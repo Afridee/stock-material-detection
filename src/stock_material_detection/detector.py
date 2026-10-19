@@ -54,7 +54,7 @@ DEFAULT_WORLD_WEIGHTS = "yolov8l-worldv2.pt"
 # Zero-shot text-prompt scores run low (a clear pack often scores 0.3-0.9,
 # a clear stick 0.1-0.4). Boxes below this are dropped; the pipeline flags
 # anything below its review score instead of trusting it.
-MIN_SCORE = 0.10
+MIN_SCORE = 0.05
 NMS_IOU = 0.5
 # Portrait phone photos letterbox to 540×960 here. At 640 a stick is a few
 # pixels thick.

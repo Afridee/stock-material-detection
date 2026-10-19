@@ -36,9 +36,13 @@ weights/
 # Local images (large / machine-specific; see README)
 reference-images/
 SAMPLE IMAGES/
+totest/
 
 # Rebuilt when gallery reference files change
 gallery/.embeddings.npz
+
+# Generated client reports
+reports/
 
 # OS / editor
 .DS_Store
