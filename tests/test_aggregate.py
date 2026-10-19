@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from stock_material_detection.detector import Detection
 from stock_material_detection.gallery import Match
 from stock_material_detection.pipeline import (
     UNKNOWN,
     Item,
     _resolve_end_matches,
     aggregate,
+    drop_nested,
+    is_weak,
     mark_inside_packs,
 )
 
@@ -128,6 +131,33 @@ def test_agreeing_stick_ends_are_not_flagged() -> None:
     assert best is not None
     assert best.sku == "black_diamond"
     assert not disagree
+
+
+def test_pack_fragments_inside_a_stronger_pack_are_dropped() -> None:
+    # Photo 1 of totest/: half a pack and a slid-out sleeve next to the full boxes.
+    full_a = Detection("cigarette_pack", 0.68, (350, 2210, 1651, 3024))
+    full_b = Detection("cigarette_pack", 0.57, (293, 337, 1487, 1130))
+    half_b = Detection("cigarette_pack", 0.10, (853, 345, 1485, 1094))
+    sleeve_a = Detection("cigarette_pack", 0.06, (1297, 2210, 1653, 2953))
+    stick_in_b = Detection("cigarette_stick", 0.06, (1109, 330, 1142, 973))
+
+    kept = drop_nested([full_b, half_b, sleeve_a, full_a, stick_in_b])
+
+    assert kept == [full_b, full_a, stick_in_b]
+
+
+def test_side_by_side_packs_are_both_kept() -> None:
+    left = Detection("cigarette_pack", 0.5, (0, 0, 100, 150))
+    right = Detection("cigarette_pack", 0.4, (90, 0, 190, 150))
+
+    assert drop_nested([left, right]) == [left, right]
+
+
+def test_strong_gallery_match_excuses_a_weak_detector_score() -> None:
+    assert is_weak(0.16, 0.84)
+    assert not is_weak(0.16, 0.89)
+    assert is_weak(0.16, None)
+    assert not is_weak(0.35, 0.60)
 
 
 def test_same_sku_splits_by_category() -> None:

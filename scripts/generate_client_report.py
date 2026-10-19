@@ -33,9 +33,12 @@ from stock_material_detection.pipeline import (
     MIN_COLOR_SIMILARITY,
     MIN_MARGIN,
     MIN_SIMILARITY,
+    NESTED_OVERLAP,
     REVIEW_SCORE,
+    STRONG_SIMILARITY,
     UNKNOWN,
     DetectResult,
+    is_weak,
     run_detect,
 )
 
@@ -88,8 +91,8 @@ REASON_COPY = {
     ),
     "low_score": (
         "Weak detection",
-        "The detector was not confident this is really the item it labelled. "
-        "It may be a false detection.",
+        "The detector was not confident this is really the item it labelled, and the SKU "
+        "match was not strong enough to confirm it on its own. It may be a false detection.",
     ),
     "close_call": (
         "Close call between similar SKUs",
@@ -245,7 +248,7 @@ def review_reasons(det: dict, *, gallery_empty: bool) -> list[str]:
             reasons.append("no_gallery" if gallery_empty else "no_match")
         else:
             reasons.append("below_similarity")
-    if det["score"] < REVIEW_SCORE:
+    if is_weak(det["score"], det["similarity"]):
         reasons.append("low_score")
     if det.get("wordmark") == "mismatch":
         reasons.append("wordmark_mismatch")
@@ -705,7 +708,8 @@ def render_html(rows: list[dict], ctx: dict) -> str:
       <h3>Thresholds used</h3>
       <dl class="legend">
         <div><dt>Minimum detector score · {ctx["min_score"]:.2f}</dt><dd>Boxes below this were dropped before counting.</dd></div>
-        <div><dt>Review score · {REVIEW_SCORE:.2f}</dt><dd>Detections below this are kept but flagged as weak.</dd></div>
+        <div><dt>Review score · {REVIEW_SCORE:.2f}</dt><dd>Detections below this are kept but flagged as weak, unless the SKU match is at least {STRONG_SIMILARITY:.2f}.</dd></div>
+        <div><dt>Nested box overlap · {NESTED_OVERLAP:.2f}</dt><dd>A box with this share of its area inside a stronger box of the same item type is a fragment and is not counted.</dd></div>
         <div><dt>Minimum SKU similarity · {ctx["min_similarity"]:.2f}</dt><dd>Below this the item is counted as Unknown.</dd></div>
         <div><dt>Minimum SKU margin · {MIN_MARGIN:.2f}</dt><dd>If the top two SKUs are closer than this, the item is flagged.</dd></div>
         <div><dt>Lighter colour similarity · {MIN_COLOR_SIMILARITY:.2f}</dt><dd>Lighters whose colour is further from the matched SKU are flagged.</dd></div>

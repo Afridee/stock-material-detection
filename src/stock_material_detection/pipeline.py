@@ -11,7 +11,16 @@ none yet). Raise or lower them once a gallery and a labeled audit set exist.
 ``MIN_SCORE`` (detector.py, ``--min-score``)
     Detector boxes below this are dropped.
 ``REVIEW_SCORE``
-    Kept boxes below this are flagged for review.
+    Kept boxes below this are flagged for review, unless the gallery match
+    is at least ``STRONG_SIMILARITY``.
+``STRONG_SIMILARITY``
+    A gallery cosine this high confirms the object on its own, so a weak
+    detector score alone does not flag it. Zero-shot text-prompt scores
+    on these packs run low even when the box is right.
+``NESTED_OVERLAP``
+    A box with at least this share of its area inside a higher-scoring box
+    of the same category is a fragment (half a pack, a slid-out sleeve)
+    and is dropped before counting.
 ``MIN_SIMILARITY`` (``--min-similarity``)
     Best gallery cosine below this gives ``sku: unknown``.
 ``MIN_MARGIN``
@@ -51,6 +60,8 @@ logger = logging.getLogger(__name__)
 
 UNKNOWN = "unknown"
 REVIEW_SCORE = 0.30
+STRONG_SIMILARITY = 0.85
+NESTED_OVERLAP = 0.8
 MIN_SIMILARITY = 0.70
 MIN_MARGIN = 0.02
 MIN_COLOR_SIMILARITY = 0.40
@@ -121,6 +132,26 @@ def _overlap_of(inner: tuple[float, ...], outer: tuple[float, ...]) -> float:
     return inter / area
 
 
+def drop_nested(detections: list[Detection], threshold: float = NESTED_OVERLAP) -> list[Detection]:
+    """Drop boxes mostly inside a higher-scoring box of the same category.
+
+    NMS only compares IoU, so half a pack or its slid-out inner sleeve
+    survives next to the full pack box and would be counted again. Order
+    is preserved.
+    """
+    ranked = sorted(range(len(detections)), key=lambda i: -detections[i].score)
+    keep: list[int] = []
+    for index in ranked:
+        det = detections[index]
+        nested = any(
+            detections[k].category == det.category and _overlap_of(det.box, detections[k].box) >= threshold
+            for k in keep
+        )
+        if not nested:
+            keep.append(index)
+    return [detections[i] for i in sorted(keep)]
+
+
 def mark_inside_packs(items: list[Item], threshold: float = INSIDE_PACK_OVERLAP) -> None:
     packs = [it.box for it in items if it.category == "cigarette_pack"]
     for item in items:
@@ -176,6 +207,11 @@ def get_ocr() -> WordmarkReader | None:
     if _ocr is None:
         _ocr = WordmarkReader()
     return _ocr
+
+
+def is_weak(score: float, similarity: float | None) -> bool:
+    """Low detector score that the gallery match does not make up for."""
+    return score < REVIEW_SCORE and (similarity is None or similarity < STRONG_SIMILARITY)
 
 
 def _resolve_end_matches(
@@ -242,7 +278,6 @@ def _identify(
     else:
         match = gallery.match(gallery.embed(queries[0]), hist)
 
-    weak = det.score < REVIEW_SCORE
     if match is None:
         item.flagged = True
         return
@@ -254,6 +289,7 @@ def _identify(
         return
 
     item.sku = match.sku
+    weak = is_weak(det.score, match.similarity)
     thin_gap = match.margin is not None and match.margin < MIN_MARGIN
     off_color = match.color_similarity is not None and match.color_similarity < MIN_COLOR_SIMILARITY
     if ocr is not None and det.category in OCR_CATEGORIES:
@@ -283,7 +319,7 @@ def run_detect(
         debug_dir.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_dir / "oriented.jpg"), image)
 
-    detections = get_detector().detect(image, min_score=min_score)
+    detections = drop_nested(get_detector().detect(image, min_score=min_score))
     gallery = get_gallery(gallery_dir)
     ocr = get_ocr()
 

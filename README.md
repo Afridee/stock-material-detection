@@ -3,7 +3,7 @@
 Counts stock materials in one phone photo of items on a surface. Output is a count per SKU, plus a flag when a human should review that line.
 
 1. Pillow EXIF rotate, so boxes are in the upright frame
-2. Ultralytics YOLOE (open-vocabulary) boxes five physical categories: `cigarette_pack`, `cigarette_stick`, `lighter`, `ashtray`, `speaker`
+2. Ultralytics YOLOE (open-vocabulary) boxes five physical categories: `cigarette_pack`, `cigarette_stick`, `lighter`, `ashtray`, `speaker`. Text prompts plus, for packs, a visual prompt built from in-scene photos (`visual_prompts/`)
 3. Each box is cropped. Sticks are cut down to their printed filter band. Lighters also get a color histogram
 4. SigLIP 2 (`google/siglip2-base-patch16-224`) embeds the crop and ranks it against `gallery/<sku>/` reference crops
 5. Optional PaddleOCR confirms the printed wordmark on pack and lighter crops (`STOCK_OCR=1`)
@@ -82,11 +82,25 @@ uv run python scripts/generate_client_report.py \
 
 `--dir` can be repeated. `--min-score`, `--min-similarity`, and `--gallery` mean the same as on `detect`. Requires Google Chrome for the HTML → PDF step.
 
+### Visual prompts
+
+Text prompts alone score these packs low (0.1–0.7 on a clear pack): half the face is a graphic health warning and the open slide packs are L-shaped. YOLOE also accepts visual prompts, so `visual_prompts/<weights>.npz` adds one visual class per category next to the text classes. The visual class only re-scores objects the text prompts already found: a visual box is kept when a text box of the same category (at or above `--min-score`) overlaps it by IoU ≥ 0.5, otherwise it is dropped, and class-agnostic NMS then keeps the best box per object. On its own the pack prompt also fires on ashtrays and whole frames; with the gate, the set of boxes is the same as text-only and only the scores change. With the shipped file, whole packs score 0.36–0.98 instead of 0.06–0.68 on the same photos, and loose sticks are unchanged.
+
+The file is built without labels: the text-prompt detector runs on a sample of in-scene photos and only its confident whole-object boxes (pack score ≥ 0.5) become references. The embedding is the mean over reference photos. Tight crops like the gallery do not work as references.
+
+```bash
+uv run python scripts/build_visual_prompts.py                       # cigarette_pack from reference-images/, 40 photos
+uv run python scripts/build_visual_prompts.py --photos /path/to/photos --category cigarette_pack --category lighter --images 60
+```
+
+Rebuild after changing `STOCK_YOLOE_WEIGHTS`; the file is tied to the checkpoint and is ignored (with a warning) when its dimension does not match. `STOCK_VISUAL_PROMPTS_DIR` moves the folder; `Detector(visual_prompts=False)` runs text prompts only.
+
 ## Counting rules
 
 - A pack counts as 1, closed or open.
 - A loose stick counts as 1. A stick whose box is at least 60% inside a pack box is still in the pack and is not counted.
 - Each lighter, ashtray, and speaker counts as 1.
+- A box with at least 80% of its area inside a higher-scoring box of the same category (half a pack, a slid-out inner sleeve) is a fragment and is dropped before counting.
 - No gallery hit gives `sku: unknown` and `flagged: true`. The pipeline never guesses a brand.
 - A line is flagged when any of its detections is flagged.
 
@@ -94,7 +108,7 @@ A detection is flagged when any of these hold. The values are conservative start
 
 | Constant | Default | Flags when |
 |----------|---------|------------|
-| `REVIEW_SCORE` | `0.30` | Detector score is below it |
+| `REVIEW_SCORE` | `0.30` | Detector score is below it and the gallery cosine is below `STRONG_SIMILARITY` (`0.85`) |
 | `MIN_SIMILARITY` | `0.70` | Best gallery cosine is below it (also sets `unknown`) |
 | `MIN_MARGIN` | `0.02` | Top SKU beats the runner-up SKU by less than this |
 | `MIN_COLOR_SIMILARITY` | `0.40` | Lighter histogram overlap with the matched SKU is below it |
@@ -145,6 +159,7 @@ On an Apple Silicon laptop at 1 thread, the detector takes about 0.45 s per phot
 | `STOCK_GALLERY_DIR` | `gallery/` | Gallery folder |
 | `STOCK_WEIGHTS_DIR` | `weights/` | Detector weights and text encoder |
 | `STOCK_YOLOE_WEIGHTS` | `yoloe-11l-seg.pt` | YOLOE checkpoint |
+| `STOCK_VISUAL_PROMPTS_DIR` | `visual_prompts/` | Folder with `<weights>.npz` visual prompt embeddings |
 | `STOCK_WORLD_WEIGHTS` | `yolov8l-worldv2.pt` | YOLO-World fallback if YOLOE cannot load |
 | `SERVICE_API_KEY` | unset | Enables the `X-API-Key` check |
 | `STOCK_WARMUP` | `1` | `0` loads models on the first request |
