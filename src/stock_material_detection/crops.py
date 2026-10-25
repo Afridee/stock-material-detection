@@ -15,7 +15,7 @@ FILTER_BAND_FRACTION = 0.3
 """Share of the stick length kept at the printed filter end."""
 
 BAND_TIE_RATIO = 0.05
-"""Relative variation gap below which both stick ends are kept.
+"""Relative print-detail gap below which both stick ends are kept.
 
 ``abs(left - right) / max(left, right)``. A pale filter and a plain shaft
 can fall inside this, so the caller matches both instead of guessing.
@@ -66,9 +66,17 @@ def foreground_mask(crop: np.ndarray) -> np.ndarray:
     return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
 
-def _color_variation(region: np.ndarray) -> float:
-    lab = cv2.cvtColor(region, cv2.COLOR_BGR2LAB).reshape(-1, 3).astype(np.float32)
-    return float(lab.std(axis=0).sum())
+def _print_detail(band: np.ndarray) -> float:
+    """Mean Lab change between neighbouring columns of a horizontal band.
+
+    Only change along the stick counts. The stick's edges, its shading, and
+    any surface caught above or below it run lengthwise and would otherwise
+    outweigh a pale filter print.
+    """
+    lab = cv2.cvtColor(band, cv2.COLOR_BGR2LAB).astype(np.float32)
+    if lab.shape[1] < 2:
+        return 0.0
+    return float(np.abs(np.diff(lab, axis=1)).mean(axis=(0, 1)).sum())
 
 
 def _oriented_ends(
@@ -76,7 +84,7 @@ def _oriented_ends(
     mask: np.ndarray,
     fraction: float,
 ) -> tuple[np.ndarray, np.ndarray, float, float] | None:
-    """Both stick ends, each with its tip facing right, plus their variation.
+    """Both stick ends, each with its tip facing right, plus their print detail.
 
     ``None`` when the outline is missing or too small to orient.
     """
@@ -103,7 +111,7 @@ def _oriented_ends(
     band_len = max(1, int(round(stick.shape[1] * fraction)))
     left = np.ascontiguousarray(stick[:, :band_len][:, ::-1])
     right = np.ascontiguousarray(stick[:, -band_len:])
-    return left, right, _color_variation(left), _color_variation(right)
+    return left, right, _print_detail(left), _print_detail(right)
 
 
 def filter_bands(
@@ -112,10 +120,10 @@ def filter_bands(
     fraction: float = FILTER_BAND_FRACTION,
     tie_ratio: float = BAND_TIE_RATIO,
 ) -> list[np.ndarray]:
-    """Filter end of one stick, or both ends when their variation is a tie.
+    """Filter end of one stick, or both ends when their print detail is a tie.
 
     The stick is rotated horizontal. Each kept end is flipped so its tip
-    faces right. The higher-variation end is first. Both are returned when
+    faces right. The end with more print detail is first. Both are returned when
     ``abs(left - right) / max(left, right)`` is below ``tie_ratio``.
     """
     if mask is None:

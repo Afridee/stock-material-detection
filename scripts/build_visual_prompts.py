@@ -27,6 +27,7 @@ from stock_material_detection.detector import (
     CATEGORIES,
     DEFAULT_YOLOE_WEIGHTS,
     Detector,
+    load_visual_prompts,
     visual_prompts_path,
 )
 from stock_material_detection.gallery import IMAGE_SUFFIXES
@@ -98,13 +99,29 @@ def main(argv: list[str] | None = None) -> int:
     for category in categories:
         if category not in kept:
             print(f"Warning: no confident {category} boxes, category skipped", file=sys.stderr)
-    vpe = np.stack([np.mean(vectors[c], axis=0) for c in kept]).astype(np.float32)
+    rows = {c: np.mean(vectors[c], axis=0) for c in kept}
+    min_score: dict = {c: DEFAULT_MIN_SCORE[c] for c in kept}
+    references: dict = {c: refs[c] for c in kept}
+    # Categories not rebuilt keep their rows (the stick prompt is hand-picked
+    # and cannot be bootstrapped: confident stick boxes are mostly litter).
+    old_categories, old_vpe = load_visual_prompts(output, embed_dim=len(rows[kept[0]]))
+    if old_categories:
+        with np.load(output, allow_pickle=False) as data:
+            old_meta = json.loads(str(data["meta"])) if "meta" in data else {}
+        for c, row in zip(old_categories, old_vpe):
+            if c not in rows:
+                rows[c] = row
+                min_score[c] = old_meta.get("min_score", {}).get(c)
+                references[c] = old_meta.get("references", {}).get(c)
+                print(f"Keeping existing {c} prompt from {output}")
+    order = [c for c in CATEGORIES if c in rows]
+    vpe = np.stack([rows[c] for c in order]).astype(np.float32)
     vpe /= np.linalg.norm(vpe, axis=1, keepdims=True)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
-        categories=np.array(kept),
+        categories=np.array(order),
         vpe=vpe,
         meta=json.dumps(
             {
@@ -112,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
                 "built": date.today().isoformat(),
                 "photos": str(args.photos),
                 "seed": args.seed,
-                "min_score": {c: DEFAULT_MIN_SCORE[c] for c in kept},
-                "references": {c: refs[c] for c in kept},
+                "min_score": min_score,
+                "references": references,
             }
         ),
     )

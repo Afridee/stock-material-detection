@@ -65,6 +65,22 @@ def test_filter_band_keeps_one_end(angle: float, filter_at_start: bool) -> None:
     assert _saturation(bands[0]) > 80
 
 
+def test_filter_band_prefers_pale_print_over_lengthwise_shadow() -> None:
+    image = np.full((80, 400, 3), 60, dtype=np.uint8)
+    stick = np.full((24, 300, 3), 235, dtype=np.uint8)
+    for x in range(90):
+        stick[:, x] = (205, 200, 240) if (x // 5) % 2 else (225, 222, 245)
+    stick[:5, 150:] = 90
+    image[28:52, 50:350] = stick
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    mask[28:52, 50:350] = 255
+
+    band = filter_band(image, mask)
+
+    pink = np.array((205, 200, 240), dtype=np.int16)
+    assert (np.abs(band.astype(np.int16) - pink).sum(axis=2) < 20).mean() > 0.3
+
+
 def test_filter_bands_keeps_both_ends_when_variation_ties() -> None:
     image = np.full((80, 400, 3), 40, dtype=np.uint8)
     stick = np.full((20, 300, 3), 230, dtype=np.uint8)

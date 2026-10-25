@@ -122,6 +122,7 @@ class Match:
     runner_up: float | None
     """Best similarity of any other SKU, or ``None`` when the gallery has one SKU."""
     color_similarity: float | None = None
+    runner_up_sku: str | None = None
 
     @property
     def margin(self) -> float | None:
@@ -222,6 +223,7 @@ class Gallery:
         ranked = sorted(best.items(), key=lambda item: -sims[item[1]])
         top_sku, top_idx = ranked[0]
         runner_up = float(sims[ranked[1][1]]) if len(ranked) > 1 else None
+        runner_up_sku = str(ranked[1][0]) if len(ranked) > 1 else None
         color = None
         if hist is not None:
             refs = self.hists[self.skus == top_sku]
@@ -231,6 +233,7 @@ class Gallery:
             similarity=float(sims[top_idx]),
             runner_up=runner_up,
             color_similarity=color,
+            runner_up_sku=runner_up_sku,
         )
 
     def wordmark(self, sku: str) -> str:

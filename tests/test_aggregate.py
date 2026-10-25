@@ -100,7 +100,7 @@ def _match(sku: str, similarity: float) -> Match:
 
 
 def test_disagreeing_stick_ends_keep_the_higher_score() -> None:
-    best, disagree = _resolve_end_matches(
+    best, rival = _resolve_end_matches(
         [_match("black_diamond", 0.80), _match("avon_blue", 0.88)],
         min_similarity=0.70,
     )
@@ -108,29 +108,30 @@ def test_disagreeing_stick_ends_keep_the_higher_score() -> None:
     assert best is not None
     assert best.sku == "avon_blue"
     assert best.similarity == 0.88
-    assert disagree
+    assert rival is not None
+    assert rival.sku == "black_diamond"
 
 
 def test_a_weak_other_end_is_not_a_disagreement() -> None:
-    best, disagree = _resolve_end_matches(
+    best, rival = _resolve_end_matches(
         [_match("avon_blue", 0.88), _match("black_diamond", 0.60)],
         min_similarity=0.70,
     )
 
     assert best is not None
     assert best.sku == "avon_blue"
-    assert not disagree
+    assert rival is None
 
 
 def test_agreeing_stick_ends_are_not_flagged() -> None:
-    best, disagree = _resolve_end_matches(
+    best, rival = _resolve_end_matches(
         [_match("black_diamond", 0.84), _match("black_diamond", 0.81)],
         min_similarity=0.70,
     )
 
     assert best is not None
     assert best.sku == "black_diamond"
-    assert not disagree
+    assert rival is None
 
 
 def test_pack_fragments_inside_a_stronger_pack_are_dropped() -> None:

@@ -84,6 +84,9 @@ class Item:
     inside_pack: bool = False
     wordmark: str | None = None
     color_similarity: float | None = None
+    rival_sku: str | None = None
+    """Other SKU in a close call: the runner-up, or the other stick end's SKU."""
+    rival_similarity: float | None = None
 
     def public_dict(self) -> dict:
         data = {
@@ -100,6 +103,11 @@ class Item:
             data["colorSimilarity"] = round(self.color_similarity, 4)
         if self.wordmark is not None:
             data["wordmark"] = self.wordmark
+        if self.rival_sku is not None:
+            data["rivalSku"] = self.rival_sku
+            data["rivalSimilarity"] = (
+                None if self.rival_similarity is None else round(self.rival_similarity, 4)
+            )
         return data
 
 
@@ -217,19 +225,21 @@ def is_weak(score: float, similarity: float | None) -> bool:
 def _resolve_end_matches(
     matches: list[Match],
     min_similarity: float,
-) -> tuple[Match | None, bool]:
-    """Best end by similarity, and whether two named ends disagree on SKU.
+) -> tuple[Match | None, Match | None]:
+    """Best end by similarity, and the best end naming a different SKU, if any.
 
     An end names a SKU only at or above ``min_similarity``. A weaker other
     end does not count as a disagreement.
     """
     if not matches:
-        return None, False
+        return None, None
     best = max(matches, key=lambda match: match.similarity)
-    disagree = best.similarity >= min_similarity and any(
-        match.similarity >= min_similarity and match.sku != best.sku for match in matches
-    )
-    return best, disagree
+    if best.similarity < min_similarity:
+        return best, None
+    rivals = [
+        match for match in matches if match.similarity >= min_similarity and match.sku != best.sku
+    ]
+    return best, max(rivals, key=lambda match: match.similarity, default=None)
 
 
 def _identify(
@@ -247,7 +257,7 @@ def _identify(
     mask = polygon_mask(crop.shape, det.polygon, offset) if det.polygon is not None else None
 
     hist = None
-    ends_disagree = False
+    end_rival: Match | None = None
     if det.category == "cigarette_stick":
         queries = filter_bands(crop, mask)
     else:
@@ -271,7 +281,7 @@ def _identify(
 
     if det.category == "cigarette_stick" and len(queries) > 1:
         found = [gallery.match(gallery.embed(band)) for band in queries]
-        match, ends_disagree = _resolve_end_matches(
+        match, end_rival = _resolve_end_matches(
             [hit for hit in found if hit is not None],
             min_similarity,
         )
@@ -291,10 +301,14 @@ def _identify(
     item.sku = match.sku
     weak = is_weak(det.score, match.similarity)
     thin_gap = match.margin is not None and match.margin < MIN_MARGIN
+    if end_rival is not None:
+        item.rival_sku, item.rival_similarity = end_rival.sku, end_rival.similarity
+    elif thin_gap:
+        item.rival_sku, item.rival_similarity = match.runner_up_sku, match.runner_up
     off_color = match.color_similarity is not None and match.color_similarity < MIN_COLOR_SIMILARITY
     if ocr is not None and det.category in OCR_CATEGORIES:
         item.wordmark = ocr.check(crop, gallery.wordmark(match.sku))
-    item.flagged = weak or thin_gap or off_color or ends_disagree or item.wordmark == "mismatch"
+    item.flagged = weak or thin_gap or off_color or end_rival is not None or item.wordmark == "mismatch"
 
 
 def run_detect(

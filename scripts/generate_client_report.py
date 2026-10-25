@@ -255,9 +255,26 @@ def review_reasons(det: dict, *, gallery_empty: bool) -> list[str]:
     color = det.get("colorSimilarity")
     if color is not None and color < MIN_COLOR_SIMILARITY:
         reasons.append("off_color")
-    if det["flagged"] and not reasons:
+    if det.get("rivalSku") or (det["flagged"] and not reasons):
         reasons.append("close_call")
     return reasons
+
+
+def close_call_pair(det: dict) -> str | None:
+    """'Avon Blue vs Black Diamond (0.88 vs 0.87)' for a close call with a known rival."""
+    rival = det.get("rivalSku")
+    if not rival:
+        return None
+    return (
+        f"{sku_title(det['sku'])} vs {sku_title(rival)} "
+        f"({fmt(det['similarity'])} vs {fmt(det.get('rivalSimilarity'))})"
+    )
+
+
+def reason_note(det: dict, code: str) -> str:
+    title = REASON_COPY[code][0]
+    pair = close_call_pair(det) if code == "close_call" else None
+    return f"{title}: {pair}" if pair else title
 
 
 def outcome(result: DetectResult) -> str:
@@ -351,7 +368,7 @@ def render_html(rows: list[dict], ctx: dict) -> str:
                 status_html = '<span class="pill review">Review</span>'
             else:
                 status_html = '<span class="pill clean">OK</span>'
-            notes = [REASON_COPY[code][0] for code in det["reasons"]]
+            notes = [reason_note(det, code) for code in det["reasons"]]
             if det.get("wordmark") == "confirmed":
                 notes.append("Printed text confirmed")
             note_html = html.escape("; ".join(notes)) if notes else ""
@@ -394,9 +411,18 @@ def render_html(rows: list[dict], ctx: dict) -> str:
                     continue
                 seen.add(code)
                 title, detail = REASON_COPY[code]
+                extra = ""
+                if code == "close_call":
+                    pairs = [
+                        f"#{j:02d} {pair}"
+                        for j, d in enumerate(r["detections"], start=1)
+                        if "close_call" in d["reasons"] and (pair := close_call_pair(d))
+                    ]
+                    if pairs:
+                        extra = f"<p><strong>{html.escape('; '.join(pairs))}</strong></p>"
                 reason_items.append(
                     f'<div class="fail-item"><strong>{html.escape(title)}</strong>'
-                    f"<p>{html.escape(detail)}</p></div>"
+                    f"<p>{html.escape(detail)}</p>{extra}</div>"
                 )
         if reason_items:
             why_html = "".join(reason_items)

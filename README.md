@@ -61,6 +61,7 @@ Exit code is `0` on success and `1` when the image is unreadable.
 - `box` is xyxy in the oriented image.
 - `score` is the detector score. `similarity` is the best gallery cosine, `null` when the gallery is empty.
 - Stick detections also carry `insidePack`. Lighters carry `colorSimilarity` once matched. With OCR on, packs and lighters carry `wordmark`: `confirmed`, `mismatch`, or absent when no Latin text was readable.
+- Close calls carry `rivalSku` and `rivalSimilarity`: the runner-up SKU when it is within the margin of the match, or the SKU named by the other end of a stick.
 - `failReasons: ["unreadable_image"]` appears only when the file is not a readable image.
 
 ### Client PDF report
@@ -84,9 +85,11 @@ uv run python scripts/generate_client_report.py \
 
 ### Visual prompts
 
-Text prompts alone score these packs low (0.1–0.7 on a clear pack): half the face is a graphic health warning and the open slide packs are L-shaped. YOLOE also accepts visual prompts, so `visual_prompts/<weights>.npz` adds one visual class per category next to the text classes. The visual class only re-scores objects the text prompts already found: a visual box is kept when a text box of the same category (at or above `--min-score`) overlaps it by IoU ≥ 0.5, otherwise it is dropped, and class-agnostic NMS then keeps the best box per object. On its own the pack prompt also fires on ashtrays and whole frames; with the gate, the set of boxes is the same as text-only and only the scores change. With the shipped file, whole packs score 0.36–0.98 instead of 0.06–0.68 on the same photos, and loose sticks are unchanged.
+Text prompts alone score these packs low (0.1–0.7 on a clear pack): half the face is a graphic health warning and the open slide packs are L-shaped. YOLOE also accepts visual prompts, so `visual_prompts/<weights>.npz` adds one visual class per category next to the text classes. The visual class only re-scores objects the text prompts already found: a visual box is kept when a text box of the same category (at or above `--min-score`) overlaps it by IoU ≥ 0.5, otherwise it is dropped, and class-agnostic NMS then keeps the best box per object. On its own the pack prompt also fires on ashtrays and whole frames; with the gate, the set of boxes is the same as text-only and only the scores change. With the shipped file, whole packs score 0.36–0.98 instead of 0.06–0.68 on the same photos, and loose sticks on `totest/` score 0.50–0.93 instead of 0.12–0.55. Sticks still inside a pack keep their low scores.
 
-The file is built without labels: the text-prompt detector runs on a sample of in-scene photos and only its confident whole-object boxes (pack score ≥ 0.5) become references. The embedding is the mean over reference photos. Tight crops like the gallery do not work as references.
+The pack prompt is built without labels: the text-prompt detector runs on a sample of in-scene photos and only its confident whole-object boxes (pack score ≥ 0.5) become references. The embedding is the mean over reference photos. Tight crops like the gallery do not work as references.
+
+The stick prompt cannot be bootstrapped that way: of the 30 stick boxes at score ≥ 0.4 in `reference-images/`, 28 were litter, pack edges, or fingers, and the resulting prompt changed nothing useful. The shipped stick row is the mean over 14 hand-picked loose-stick boxes from 11 photos; the files and boxes are in the `.npz` `meta` under `references`. Rebuilding other categories keeps rows the script did not rebuild, so the stick row survives a default run.
 
 ```bash
 uv run python scripts/build_visual_prompts.py                       # cigarette_pack from reference-images/, 40 photos
