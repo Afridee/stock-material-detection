@@ -161,6 +161,34 @@ def test_strong_gallery_match_excuses_a_weak_detector_score() -> None:
     assert not is_weak(0.35, 0.60)
 
 
+def test_public_dict_includes_gallery_refs() -> None:
+    item = Item(
+        category="cigarette_pack",
+        score=0.9,
+        box=(0, 0, 10, 10),
+        sku="avon_blue",
+        similarity=0.88,
+        flagged=True,
+        rival_sku="black_diamond",
+        rival_similarity=0.87,
+        match_ref="avon_blue/pack_studio.jpg",
+        rival_ref="black_diamond/pack_studio.jpg",
+    )
+
+    data = item.public_dict()
+
+    assert data["matchRef"] == "avon_blue/pack_studio.jpg"
+    assert data["rivalRef"] == "black_diamond/pack_studio.jpg"
+    assert data["rivalSku"] == "black_diamond"
+
+
+def test_public_dict_omits_gallery_refs_when_absent() -> None:
+    item = _item("cigarette_pack", (0, 0, 10, 10))
+
+    assert "matchRef" not in item.public_dict()
+    assert "rivalRef" not in item.public_dict()
+
+
 def test_same_sku_splits_by_category() -> None:
     items = [
         _item("cigarette_pack", (0, 0, 100, 100)),

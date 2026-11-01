@@ -271,6 +271,77 @@ def close_call_pair(det: dict) -> str | None:
     )
 
 
+def ref_sku(ref: str | None, fallback: str | None = None) -> str | None:
+    if ref and "/" in ref:
+        return ref.split("/", 1)[0]
+    return fallback
+
+
+def _safe_gallery_path(gallery_dir: Path, ref: str | None) -> Path | None:
+    if not ref:
+        return None
+    gallery_dir = gallery_dir.resolve()
+    path = (gallery_dir / ref).resolve()
+    try:
+        path.relative_to(gallery_dir)
+    except ValueError:
+        return None
+    return path if path.is_file() else None
+
+
+def gallery_ref_figure(
+    gallery_dir: Path,
+    ref: str | None,
+    sku: str | None,
+    score: float | None,
+    *,
+    rival: bool = False,
+) -> str:
+    path = _safe_gallery_path(gallery_dir, ref)
+    jpeg = preview_jpeg(path, CROP_MAX_SIDE) if path is not None else None
+    thumb = (
+        f'<img class="thumb" src="{data_uri_jpeg(jpeg)}" alt="">'
+        if jpeg
+        else '<span class="thumb empty"></span>'
+    )
+    name = Path(ref).name if ref else ""
+    sku_txt = sku_title(sku) if sku else "—"
+    caption = sku_txt if not name else f"{sku_txt} · {name}"
+    kind = "Also close" if rival else "Best match"
+    return (
+        f'<figure class="ref{" rival" if rival else ""}">'
+        f"{thumb}"
+        f"<figcaption><span class='ref-kind'>{kind}</span>"
+        f"{html.escape(caption)}<br>{html.escape(fmt(score))}</figcaption>"
+        f"</figure>"
+    )
+
+
+def gallery_match_html(det: dict, gallery_dir: Path) -> str:
+    """One gallery thumb, or two when the detection is a close call."""
+    if not det.get("matchRef") and not det.get("rivalRef"):
+        return '<span class="thumb empty"></span>'
+    parts = [
+        gallery_ref_figure(
+            gallery_dir,
+            det.get("matchRef"),
+            ref_sku(det.get("matchRef"), det.get("sku")),
+            det.get("similarity"),
+        )
+    ]
+    if det.get("rivalSku") or det.get("rivalRef"):
+        parts.append(
+            gallery_ref_figure(
+                gallery_dir,
+                det.get("rivalRef"),
+                ref_sku(det.get("rivalRef"), det.get("rivalSku")),
+                det.get("rivalSimilarity"),
+                rival=True,
+            )
+        )
+    return f'<div class="refs">{"".join(parts)}</div>'
+
+
 def reason_note(det: dict, code: str) -> str:
     title = REASON_COPY[code][0]
     pair = close_call_pair(det) if code == "close_call" else None
@@ -377,11 +448,13 @@ def render_html(rows: list[dict], ctx: dict) -> str:
                 if det.get("thumb")
                 else '<span class="thumb empty"></span>'
             )
+            gallery = gallery_match_html(det, ctx["gallery_dir"])
             det_rows.append(
                 f"""
                 <tr>
                   <td class="num">{j:02d}</td>
                   <td>{thumb}</td>
+                  <td>{gallery}</td>
                   <td>{html.escape(category_title(det["category"]))}</td>
                   <td>{html.escape(sku_title(det["sku"]))}</td>
                   <td class="num">{fmt(det["score"])}</td>
@@ -394,7 +467,7 @@ def render_html(rows: list[dict], ctx: dict) -> str:
               <h3>Detections</h3>
               <table class="dets">
                 <thead>
-                  <tr><th>#</th><th>Crop</th><th>Item</th><th>SKU</th>
+                  <tr><th>#</th><th>Crop</th><th>Closest gallery</th><th>Item</th><th>SKU</th>
                   <th class="num">Detector</th><th class="num">Match</th><th>Status</th></tr>
                 </thead>
                 <tbody>{"".join(det_rows)}</tbody>
@@ -655,6 +728,25 @@ def render_html(rows: list[dict], ctx: dict) -> str:
       border-radius: 6px;
     }}
     .thumb.empty {{ background: repeating-linear-gradient(45deg, #eef1f5, #eef1f5 6px, #e3e8ef 6px, #e3e8ef 12px); }}
+    .refs {{ display: flex; gap: 8px; align-items: flex-start; }}
+    .ref {{ margin: 0; width: 84px; }}
+    .ref .thumb {{ width: 84px; height: 84px; }}
+    .ref figcaption {{
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.25;
+      margin-top: 3px;
+      word-break: break-word;
+    }}
+    .ref .ref-kind {{
+      display: block;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      font-size: 9px;
+      margin-bottom: 1px;
+    }}
+    .ref.rival figcaption, .ref.rival .ref-kind {{ color: var(--review); }}
     .det-note {{ color: var(--muted); font-size: 11px; margin-top: 2px; }}
     .fail-item {{
       background: var(--review-bg);
@@ -726,7 +818,8 @@ def render_html(rows: list[dict], ctx: dict) -> str:
       (for example “Avon Blue · Cigarette pack · 2”). A line is marked <span class="pill review">Review</span>
       when at least one of its items was uncertain; otherwise it is <span class="pill clean">OK</span>.
       The annotated photo shows every detection: green boxes are confidently identified, red boxes need review,
-      and grey boxes are sticks still inside a pack (not counted).</p>
+      and grey boxes are sticks still inside a pack (not counted).
+      Each detection also shows the gallery crop it matched most closely; close calls show both references.</p>
       <h3>Counting rules</h3>
       <dl class="legend">{category_rows}</dl>
       <h3>Reference gallery</h3>

@@ -87,6 +87,9 @@ class Item:
     rival_sku: str | None = None
     """Other SKU in a close call: the runner-up, or the other stick end's SKU."""
     rival_similarity: float | None = None
+    match_ref: str | None = None
+    """Best-matching gallery image (``sku/file.jpg``)."""
+    rival_ref: str | None = None
 
     def public_dict(self) -> dict:
         data = {
@@ -103,11 +106,15 @@ class Item:
             data["colorSimilarity"] = round(self.color_similarity, 4)
         if self.wordmark is not None:
             data["wordmark"] = self.wordmark
+        if self.match_ref is not None:
+            data["matchRef"] = self.match_ref
         if self.rival_sku is not None:
             data["rivalSku"] = self.rival_sku
             data["rivalSimilarity"] = (
                 None if self.rival_similarity is None else round(self.rival_similarity, 4)
             )
+            if self.rival_ref is not None:
+                data["rivalRef"] = self.rival_ref
         return data
 
 
@@ -294,6 +301,7 @@ def _identify(
 
     item.similarity = match.similarity
     item.color_similarity = match.color_similarity
+    item.match_ref = match.ref
     if match.similarity < min_similarity:
         item.flagged = True
         return
@@ -303,8 +311,10 @@ def _identify(
     thin_gap = match.margin is not None and match.margin < MIN_MARGIN
     if end_rival is not None:
         item.rival_sku, item.rival_similarity = end_rival.sku, end_rival.similarity
+        item.rival_ref = end_rival.ref
     elif thin_gap:
         item.rival_sku, item.rival_similarity = match.runner_up_sku, match.runner_up
+        item.rival_ref = match.runner_up_ref
     off_color = match.color_similarity is not None and match.color_similarity < MIN_COLOR_SIMILARITY
     if ocr is not None and det.category in OCR_CATEGORIES:
         item.wordmark = ocr.check(crop, gallery.wordmark(match.sku))

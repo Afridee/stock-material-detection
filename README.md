@@ -62,11 +62,12 @@ Exit code is `0` on success and `1` when the image is unreadable.
 - `score` is the detector score. `similarity` is the best gallery cosine, `null` when the gallery is empty.
 - Stick detections also carry `insidePack`. Lighters carry `colorSimilarity` once matched. With OCR on, packs and lighters carry `wordmark`: `confirmed`, `mismatch`, or absent when no Latin text was readable.
 - Close calls carry `rivalSku` and `rivalSimilarity`: the runner-up SKU when it is within the margin of the match, or the SKU named by the other end of a stick.
+- A gallery hit also carries `matchRef` (`sku/file.jpg`): the reference image with the highest cosine. Close calls add `rivalRef` for the other image.
 - `failReasons: ["unreadable_image"]` appears only when the file is not a readable image.
 
 ### Client PDF report
 
-Runs `detect` on photo folders, writes HTML in a temp directory, converts it to PDF with Chrome, and keeps only the PDF. Each photo gets an annotated box overlay, the count lines per SKU, every detection with its crop, and a plain-language reason for each review flag. The front pages hold totals per SKU across all photos, the most common review reasons, and the thresholds used.
+Runs `detect` on photo folders, writes HTML in a temp directory, converts it to PDF with Chrome, and keeps only the PDF. Each photo gets an annotated box overlay, the count lines per SKU, every detection with its crop and the closest gallery image (both images on a close call), and a plain-language reason for each review flag. The front pages hold totals per SKU across all photos, the most common review reasons, and the thresholds used.
 
 ```bash
 uv run python scripts/generate_client_report.py

@@ -123,6 +123,9 @@ class Match:
     """Best similarity of any other SKU, or ``None`` when the gallery has one SKU."""
     color_similarity: float | None = None
     runner_up_sku: str | None = None
+    ref: str | None = None
+    """Winning gallery image, relative to the gallery folder (``sku/file.jpg``)."""
+    runner_up_ref: str | None = None
 
     @property
     def margin(self) -> float | None:
@@ -222,8 +225,9 @@ class Gallery:
                 best[sku] = idx
         ranked = sorted(best.items(), key=lambda item: -sims[item[1]])
         top_sku, top_idx = ranked[0]
-        runner_up = float(sims[ranked[1][1]]) if len(ranked) > 1 else None
-        runner_up_sku = str(ranked[1][0]) if len(ranked) > 1 else None
+        runner_idx = ranked[1][1] if len(ranked) > 1 else None
+        runner_up = None if runner_idx is None else float(sims[runner_idx])
+        runner_up_sku = None if runner_idx is None else str(ranked[1][0])
         color = None
         if hist is not None:
             refs = self.hists[self.skus == top_sku]
@@ -234,7 +238,13 @@ class Gallery:
             runner_up=runner_up,
             color_similarity=color,
             runner_up_sku=runner_up_sku,
+            ref=self._ref_key(top_idx),
+            runner_up_ref=None if runner_idx is None else self._ref_key(runner_idx),
         )
+
+    def _ref_key(self, idx: int) -> str:
+        sku, path = self.entries[idx]
+        return f"{sku}/{path.name}"
 
     def wordmark(self, sku: str) -> str:
         path = self.dir / sku / WORDMARK_FILE
