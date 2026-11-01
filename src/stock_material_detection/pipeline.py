@@ -29,6 +29,11 @@ none yet). Raise or lower them once a gallery and a labeled audit set exist.
     Lighter histogram intersection with the matched SKU below this is flagged.
 ``BAND_TIE_RATIO`` (crops.py)
     Stick ends closer than this are both matched. Different SKUs flag the stick.
+``SIZE_TOLERANCE``
+    For SKUs with ``pack_sizes.json``, a pack face aspect ratio further than
+    this (relative) from every listed size is flagged and keeps the brand SKU.
+    Measured 20s and 10s Black Diamond faces sit within 0.02 of their listed
+    value; an edge-on or squashed pack lands outside.
 """
 
 from __future__ import annotations
@@ -49,6 +54,7 @@ from pydantic import BaseModel, Field
 from stock_material_detection.crops import (
     color_histogram,
     crop_box,
+    face_aspect,
     filter_bands,
     polygon_mask,
 )
@@ -67,6 +73,7 @@ MIN_MARGIN = 0.02
 MIN_COLOR_SIMILARITY = 0.40
 INSIDE_PACK_OVERLAP = 0.6
 """Share of a stick box inside a pack box that marks it as still in the pack."""
+SIZE_TOLERANCE = 0.07
 
 OCR_CATEGORIES = {"cigarette_pack", "lighter"}
 
@@ -90,6 +97,9 @@ class Item:
     match_ref: str | None = None
     """Best-matching gallery image (``sku/file.jpg``)."""
     rival_ref: str | None = None
+    face_aspect: float | None = None
+    """Pack face long/short side, only for SKUs with more than one pack size."""
+    pack_size: str | None = None
 
     def public_dict(self) -> dict:
         data = {
@@ -106,6 +116,10 @@ class Item:
             data["colorSimilarity"] = round(self.color_similarity, 4)
         if self.wordmark is not None:
             data["wordmark"] = self.wordmark
+        if self.face_aspect is not None:
+            data["faceAspect"] = round(self.face_aspect, 3)
+        if self.pack_size is not None:
+            data["packSize"] = self.pack_size
         if self.match_ref is not None:
             data["matchRef"] = self.match_ref
         if self.rival_sku is not None:
@@ -229,6 +243,18 @@ def is_weak(score: float, similarity: float | None) -> bool:
     return score < REVIEW_SCORE and (similarity is None or similarity < STRONG_SIMILARITY)
 
 
+def pick_pack_size(
+    aspect: float | None,
+    sizes: dict[str, float],
+    tolerance: float = SIZE_TOLERANCE,
+) -> str | None:
+    """Size whose listed face aspect is nearest, or ``None`` when none is within ``tolerance``."""
+    if aspect is None or not sizes:
+        return None
+    size, listed = min(sizes.items(), key=lambda entry: abs(np.log(aspect / entry[1])))
+    return size if abs(aspect - listed) / listed <= tolerance else None
+
+
 def _resolve_end_matches(
     matches: list[Match],
     min_similarity: float,
@@ -307,6 +333,15 @@ def _identify(
         return
 
     item.sku = match.sku
+    size_unsure = False
+    sizes = gallery.pack_sizes(match.sku) if det.category == "cigarette_pack" else {}
+    if sizes:
+        item.face_aspect = face_aspect(det.polygon)
+        item.pack_size = pick_pack_size(item.face_aspect, sizes)
+        if item.pack_size is None:
+            size_unsure = True
+        else:
+            item.sku = f"{match.sku}_{item.pack_size}"
     weak = is_weak(det.score, match.similarity)
     thin_gap = match.margin is not None and match.margin < MIN_MARGIN
     if end_rival is not None:
@@ -318,7 +353,14 @@ def _identify(
     off_color = match.color_similarity is not None and match.color_similarity < MIN_COLOR_SIMILARITY
     if ocr is not None and det.category in OCR_CATEGORIES:
         item.wordmark = ocr.check(crop, gallery.wordmark(match.sku))
-    item.flagged = weak or thin_gap or off_color or end_rival is not None or item.wordmark == "mismatch"
+    item.flagged = (
+        weak
+        or thin_gap
+        or off_color
+        or size_unsure
+        or end_rival is not None
+        or item.wordmark == "mismatch"
+    )
 
 
 def run_detect(

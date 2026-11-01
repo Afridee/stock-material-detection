@@ -50,6 +50,18 @@ def polygon_mask(shape: tuple[int, ...], polygon: np.ndarray, offset: tuple[int,
     return mask
 
 
+def face_aspect(polygon: np.ndarray | None) -> float | None:
+    """Long side over short side of the rotated rectangle around ``polygon``.
+
+    Unlike the axis-aligned box, it does not change when the item lies at an angle.
+    """
+    if polygon is None or len(polygon) < 3:
+        return None
+    _, (width, height), _ = cv2.minAreaRect(np.asarray(polygon, dtype=np.float32))
+    short, long = sorted((width, height))
+    return None if short <= 0 else float(long / short)
+
+
 def foreground_mask(crop: np.ndarray) -> np.ndarray:
     """Object mask from Lab distance to the crop's border color.
 

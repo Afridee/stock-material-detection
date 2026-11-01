@@ -107,6 +107,12 @@ REASON_COPY = {
         "Printed text does not match",
         "Text read from the item does not contain the matched SKU's wordmark.",
     ),
+    "pack_size_unsure": (
+        "Pack size unclear",
+        "The brand is sold in more than one pack size with the same artwork. The pack's "
+        "outline did not match any size closely (for example it is seen edge-on, tilted, "
+        "or partly hidden), so it is counted under the brand without a size.",
+    ),
 }
 
 OUTCOME_LABEL = {
@@ -255,6 +261,8 @@ def review_reasons(det: dict, *, gallery_empty: bool) -> list[str]:
     color = det.get("colorSimilarity")
     if color is not None and color < MIN_COLOR_SIMILARITY:
         reasons.append("off_color")
+    if det.get("faceAspect") is not None and det.get("packSize") is None:
+        reasons.append("pack_size_unsure")
     if det.get("rivalSku") or (det["flagged"] and not reasons):
         reasons.append("close_call")
     return reasons

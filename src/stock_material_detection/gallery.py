@@ -16,6 +16,11 @@ Optional ``gallery/<sku>/wordmark.txt`` holds the Latin wordmark printed on
 the product (for example ``AVON``). Without it, the first word of the folder
 name is used. The wordmark is only read when ``STOCK_OCR=1``.
 
+Optional ``gallery/<sku>/pack_sizes.json`` splits a brand sold in more than one
+pack size with the same artwork, for example ``{"20": 1.58, "10": 2.03}``.
+Values are the front face's long side over its short side. A matched pack is
+reported as ``<sku>_<size>`` (``black_diamond_20``).
+
 Vectors are cached in ``gallery/.embeddings.npz`` and rebuilt when a file
 is added, removed, or changed.
 """
@@ -31,6 +36,7 @@ from stock_material_detection.cpu_threads import (
 
 configure_cpu_threads()
 
+import json
 import logging
 import os
 import re
@@ -49,6 +55,7 @@ MODEL_ID = "google/siglip2-base-patch16-224"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 CACHE_NAME = ".embeddings.npz"
 WORDMARK_FILE = "wordmark.txt"
+PACK_SIZES_FILE = "pack_sizes.json"
 LETTERBOX_FILL = (128, 128, 128)
 EMBED_BATCH = 16
 QUARTER_TURNS = (None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -142,6 +149,7 @@ class Gallery:
         self.skus: np.ndarray = np.array([], dtype=object)
         self.vectors = np.zeros((0, 0), dtype=np.float32)
         self.hists = np.zeros((0, 0), dtype=np.float32)
+        self._pack_sizes: dict[str, dict[str, float]] = {}
         if self.entries:
             self._load_or_build()
         logger.info(
@@ -253,6 +261,27 @@ class Gallery:
             if text:
                 return text
         return re.split(r"[_\-\s]+", sku)[0]
+
+    def pack_sizes(self, sku: str) -> dict[str, float]:
+        """Pack size -> front face aspect ratio, empty when the SKU has one size."""
+        if sku not in self._pack_sizes:
+            self._pack_sizes[sku] = _read_pack_sizes(self.dir / sku / PACK_SIZES_FILE)
+        return self._pack_sizes[sku]
+
+
+def _read_pack_sizes(path: Path) -> dict[str, float]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        sizes = {str(size): float(aspect) for size, aspect in data.items()}
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        logger.warning("ignoring pack sizes %s: %s", path, exc)
+        return {}
+    if any(aspect < 1 for aspect in sizes.values()):
+        logger.warning("ignoring pack sizes %s: aspect ratios are long side over short side, so >= 1", path)
+        return {}
+    return sizes
 
 
 def ocr_enabled() -> bool:

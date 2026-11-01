@@ -11,6 +11,8 @@ Counts stock materials in one phone photo of items on a surface. Output is a cou
 
 Brand, variant, filter pattern, and lighter print are not detector classes. A new SKU is a folder of reference crops, not a new detector class.
 
+A brand sold in several pack sizes with the same artwork (Black Diamond 20s and 10s) stays one gallery folder. `gallery/<sku>/pack_sizes.json` lists each size's front face aspect ratio, long side over short side, for example `{"20": 1.58, "10": 2.03}`. The pack's segmentation outline is fitted with a rotated rectangle, and the nearest size within 7% names the SKU (`black_diamond_20`). Otherwise the pack keeps the brand SKU and is flagged. An opened slide pack with its sleeve pulled out, or a pack seen edge-on, is flagged this way.
+
 The CLI is for local eval. `POST /detect` is the same pipeline over HTTP.
 
 ## Setup
@@ -61,6 +63,7 @@ Exit code is `0` on success and `1` when the image is unreadable.
 - `box` is xyxy in the oriented image.
 - `score` is the detector score. `similarity` is the best gallery cosine, `null` when the gallery is empty.
 - Stick detections also carry `insidePack`. Lighters carry `colorSimilarity` once matched. With OCR on, packs and lighters carry `wordmark`: `confirmed`, `mismatch`, or absent when no Latin text was readable.
+- Packs of a SKU with `pack_sizes.json` carry `faceAspect`, plus `packSize` when it matched a listed size.
 - Close calls carry `rivalSku` and `rivalSimilarity`: the runner-up SKU when it is within the margin of the match, or the SKU named by the other end of a stick.
 - A gallery hit also carries `matchRef` (`sku/file.jpg`): the reference image with the highest cosine. Close calls add `rivalRef` for the other image.
 - `failReasons: ["unreadable_image"]` appears only when the file is not a readable image.
