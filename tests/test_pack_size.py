@@ -80,6 +80,9 @@ class _FakeGallery:
     def pack_sizes(self, sku: str) -> dict[str, float]:
         return self._sizes
 
+    def category(self, sku: str) -> str | None:
+        return None
+
 
 def _identified(long: float, short: float, sizes: dict[str, float] = BLACK_DIAMOND) -> Item:
     polygon = _rect(long, short, 3)

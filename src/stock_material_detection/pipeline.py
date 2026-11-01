@@ -75,7 +75,7 @@ INSIDE_PACK_OVERLAP = 0.6
 """Share of a stick box inside a pack box that marks it as still in the pack."""
 SIZE_TOLERANCE = 0.07
 
-OCR_CATEGORIES = {"cigarette_pack", "lighter"}
+OCR_CATEGORIES = {"cigarette_pack", "lighter", "earphones"}
 
 
 @dataclass
@@ -190,7 +190,7 @@ def mark_inside_packs(items: list[Item], threshold: float = INSIDE_PACK_OVERLAP)
 
 
 def aggregate(items: list[Item]) -> list[CountLine]:
-    """Count each pack, loose stick, lighter, ashtray, and speaker as 1.
+    """Count each pack, loose stick, lighter, ashtray, speaker, and earphones box as 1.
 
     Sticks still inside a pack are not counted. A line is flagged when any
     of its detections is flagged, and ``unknown`` is always flagged.
@@ -333,8 +333,10 @@ def _identify(
         return
 
     item.sku = match.sku
+    if det.category != "cigarette_stick":
+        item.category = gallery.category(match.sku) or item.category
     size_unsure = False
-    sizes = gallery.pack_sizes(match.sku) if det.category == "cigarette_pack" else {}
+    sizes = gallery.pack_sizes(match.sku) if item.category == "cigarette_pack" else {}
     if sizes:
         item.face_aspect = face_aspect(det.polygon)
         item.pack_size = pick_pack_size(item.face_aspect, sizes)
@@ -351,7 +353,7 @@ def _identify(
         item.rival_sku, item.rival_similarity = match.runner_up_sku, match.runner_up
         item.rival_ref = match.runner_up_ref
     off_color = match.color_similarity is not None and match.color_similarity < MIN_COLOR_SIMILARITY
-    if ocr is not None and det.category in OCR_CATEGORIES:
+    if ocr is not None and item.category in OCR_CATEGORIES:
         item.wordmark = ocr.check(crop, gallery.wordmark(match.sku))
     item.flagged = (
         weak
@@ -420,6 +422,7 @@ _OVERLAY_COLORS = {
     "lighter": (255, 120, 0),
     "ashtray": (0, 255, 0),
     "speaker": (255, 0, 255),
+    "earphones": (255, 255, 0),
 }
 
 

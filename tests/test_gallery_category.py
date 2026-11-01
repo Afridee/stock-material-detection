@@ -1,0 +1,67 @@
+"""``category.txt`` re-labels a matched box for products with no detector prompt."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from stock_material_detection.detector import Detection
+from stock_material_detection.gallery import Gallery, Match
+from stock_material_detection.pipeline import Item, _identify, aggregate
+
+
+def test_gallery_reads_category(tmp_path) -> None:
+    (tmp_path / "cyxg_x87").mkdir()
+    (tmp_path / "cyxg_x87" / "category.txt").write_text("earphones\n")
+    (tmp_path / "avon_blue").mkdir()
+
+    gallery = Gallery(tmp_path)
+
+    assert gallery.category("cyxg_x87") == "earphones"
+    assert gallery.category("avon_blue") is None
+
+
+class _FakeGallery:
+    empty = False
+
+    def __init__(self, similarity: float = 0.95) -> None:
+        self._similarity = similarity
+
+    def embed(self, crop: np.ndarray) -> np.ndarray:
+        return np.ones((1, 2), dtype=np.float32)
+
+    def match(self, vectors: np.ndarray, hist: np.ndarray | None = None) -> Match:
+        return Match(sku="cyxg_x87", similarity=self._similarity, runner_up=0.5, ref="cyxg_x87/box.jpg")
+
+    def wordmark(self, sku: str) -> str:
+        return "CYXG"
+
+    def pack_sizes(self, sku: str) -> dict[str, float]:
+        return {"20": 1.58}
+
+    def category(self, sku: str) -> str | None:
+        return "earphones"
+
+
+def _identified(category: str, similarity: float = 0.95) -> Item:
+    det = Detection(category, 0.9, (100.0, 100.0, 300.0, 400.0), None)
+    item = Item(category=det.category, score=det.score, box=det.box)
+    image = np.full((600, 800, 3), 200, dtype=np.uint8)
+    _identify(item, det, image, _FakeGallery(similarity), None, min_similarity=0.7, debug=None)
+    return item
+
+
+def test_matched_box_takes_gallery_category() -> None:
+    item = _identified("cigarette_pack")
+
+    assert (item.sku, item.category) == ("cyxg_x87", "earphones")
+    assert item.pack_size is None
+    assert not item.flagged
+    assert [(line.sku, line.category, line.count) for line in aggregate([item])] == [
+        ("cyxg_x87", "earphones", 1)
+    ]
+
+
+def test_unmatched_box_keeps_detector_category() -> None:
+    item = _identified("cigarette_pack", similarity=0.5)
+
+    assert (item.sku, item.category) == ("unknown", "cigarette_pack")

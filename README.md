@@ -127,6 +127,8 @@ A detection is flagged when any of these hold. The values are conservative start
 
 To add an SKU, create `gallery/<sku>/` and put tight reference crops in it (`.jpg`, `.jpeg`, `.png`). The folder name becomes the `sku`. One folder can hold every form of the product: pack faces, stick filter bands, and lighter bodies. Crops from `--debug-dir` are the right shape to copy in. For OCR, add `gallery/<sku>/wordmark.txt` with the printed Latin wordmark (for example `AVON`). Without it, the first word of the folder name is used.
 
+A product with no detector category of its own, such as boxed earphones, is still boxed (usually as `cigarette_pack`, via the `product box` prompt). Add `gallery/<sku>/category.txt` naming its category (for example `earphones`) and a matched box is re-labelled to it. Unmatched boxes keep the detector's category, and stick bands are never re-labelled. `gallery/cyxg_x87/` is the example. Text prompts like "earbuds" were tried and fire on the earbuds pictured on the box, not the box itself, so the gallery decides instead.
+
 Vectors are cached in `gallery/.embeddings.npz` and rebuilt when a reference file changes.
 
 `reference-images/` holds 1036 unlabeled close-ups. It is not the gallery: do not copy it into `gallery/` or sort it automatically.

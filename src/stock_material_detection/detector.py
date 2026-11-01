@@ -35,7 +35,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-CATEGORIES = ("cigarette_pack", "cigarette_stick", "lighter", "ashtray", "speaker")
+CATEGORIES = ("cigarette_pack", "cigarette_stick", "lighter", "ashtray", "speaker", "earphones")
 
 # Text prompt -> category. Each category has its plain name plus a few
 # physical descriptions; class-agnostic NMS keeps the best-scoring one per

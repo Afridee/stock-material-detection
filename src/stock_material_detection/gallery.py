@@ -21,6 +21,10 @@ pack size with the same artwork, for example ``{"20": 1.58, "10": 2.03}``.
 Values are the front face's long side over its short side. A matched pack is
 reported as ``<sku>_<size>`` (``black_diamond_20``).
 
+Optional ``gallery/<sku>/category.txt`` names the category of a product the
+detector has no prompt for (for example ``earphones``). A matched box takes
+that category instead of the detector's; stick bands are never re-labelled.
+
 Vectors are cached in ``gallery/.embeddings.npz`` and rebuilt when a file
 is added, removed, or changed.
 """
@@ -56,6 +60,7 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 CACHE_NAME = ".embeddings.npz"
 WORDMARK_FILE = "wordmark.txt"
 PACK_SIZES_FILE = "pack_sizes.json"
+CATEGORY_FILE = "category.txt"
 LETTERBOX_FILL = (128, 128, 128)
 EMBED_BATCH = 16
 QUARTER_TURNS = (None, cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_180, cv2.ROTATE_90_COUNTERCLOCKWISE)
@@ -267,6 +272,15 @@ class Gallery:
         if sku not in self._pack_sizes:
             self._pack_sizes[sku] = _read_pack_sizes(self.dir / sku / PACK_SIZES_FILE)
         return self._pack_sizes[sku]
+
+    def category(self, sku: str) -> str | None:
+        """Category named in ``category.txt``, or ``None`` to keep the detector's."""
+        path = self.dir / sku / CATEGORY_FILE
+        if path.is_file():
+            text = path.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+        return None
 
 
 def _read_pack_sizes(path: Path) -> dict[str, float]:

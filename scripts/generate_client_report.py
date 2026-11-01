@@ -71,6 +71,10 @@ CATEGORY_META = {
         "title": "Speaker",
         "rule": "Each speaker counts as 1.",
     },
+    "earphones": {
+        "title": "Earphones",
+        "rule": "Each earphones box counts as 1.",
+    },
 }
 
 REASON_COPY = {
