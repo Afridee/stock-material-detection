@@ -10,6 +10,7 @@ from stock_material_detection.pipeline import (
     _resolve_end_matches,
     aggregate,
     drop_nested,
+    drop_split_fragments,
     is_weak,
     mark_inside_packs,
 )
@@ -199,3 +200,18 @@ def test_same_sku_splits_by_category() -> None:
         ("brand_a", "cigarette_pack"),
         ("brand_a", "cigarette_stick"),
     }
+
+
+def test_split_off_end_of_a_named_object_is_dropped() -> None:
+    lighter = _item("electric_lighter", (240, 477, 380, 600), sku="electric_lighter")
+    lighter.match_ref = "electric_lighter/wordmark_side.jpg"
+    end = _item("lighter", (349, 463, 406, 532), sku=UNKNOWN, flagged=True)
+    end.match_ref = "electric_lighter/bagged_plain_side.jpg"
+    other_sku = _item("lighter", (349, 463, 406, 532), sku=UNKNOWN, flagged=True)
+    other_sku.match_ref = "avon_blue/pack_studio.jpg"
+    apart = _item("lighter", (800, 800, 860, 870), sku=UNKNOWN, flagged=True)
+    apart.match_ref = "electric_lighter/bagged_plain_side.jpg"
+
+    kept = drop_split_fragments([lighter, end, other_sku, apart])
+
+    assert kept == [lighter, other_sku, apart]

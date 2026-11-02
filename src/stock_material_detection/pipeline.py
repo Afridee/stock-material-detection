@@ -21,6 +21,10 @@ none yet). Raise or lower them once a gallery and a labeled audit set exist.
     A box with at least this share of its area inside a higher-scoring box
     of the same category is a fragment (half a pack, a slid-out sleeve)
     and is dropped before counting.
+``FRAGMENT_OVERLAP``
+    An unnamed box with at least this share of its area inside a named box,
+    whose closest gallery image is that box's SKU, is a split-off piece of
+    it and is dropped. Measured: 0.43 for the end of a USB lighter.
 ``MIN_SIMILARITY`` (``--min-similarity``)
     Best gallery cosine below this gives ``sku: unknown``.
 ``MIN_MARGIN``
@@ -68,6 +72,7 @@ UNKNOWN = "unknown"
 REVIEW_SCORE = 0.30
 STRONG_SIMILARITY = 0.85
 NESTED_OVERLAP = 0.8
+FRAGMENT_OVERLAP = 0.3
 MIN_SIMILARITY = 0.70
 MIN_MARGIN = 0.02
 MIN_COLOR_SIMILARITY = 0.40
@@ -181,6 +186,32 @@ def drop_nested(detections: list[Detection], threshold: float = NESTED_OVERLAP) 
     return [detections[i] for i in sorted(keep)]
 
 
+def drop_split_fragments(items: list[Item], threshold: float = FRAGMENT_OVERLAP) -> list[Item]:
+    """Drop unnamed boxes that are a split-off piece of a named neighbour.
+
+    The detector sometimes boxes one end of an object separately under
+    another category (the end of a USB lighter as "lighter"), so
+    ``drop_nested`` misses it. The piece is too weak to be named, but its
+    closest gallery image is the neighbour's SKU. Order is preserved.
+    """
+    named = [it for it in items if it.sku != UNKNOWN]
+    keep = []
+    for item in items:
+        ref_sku = item.match_ref.split("/", 1)[0] if item.match_ref else None
+        split = (
+            item.sku == UNKNOWN
+            and ref_sku is not None
+            and any(
+                other.match_ref and other.match_ref.split("/", 1)[0] == ref_sku
+                and _overlap_of(item.box, other.box) >= threshold
+                for other in named
+            )
+        )
+        if not split:
+            keep.append(item)
+    return keep
+
+
 def mark_inside_packs(items: list[Item], threshold: float = INSIDE_PACK_OVERLAP) -> None:
     packs = [it.box for it in items if it.category == "cigarette_pack"]
     for item in items:
@@ -190,7 +221,7 @@ def mark_inside_packs(items: list[Item], threshold: float = INSIDE_PACK_OVERLAP)
 
 
 def aggregate(items: list[Item]) -> list[CountLine]:
-    """Count each pack, loose stick, lighter, ashtray, speaker, and earphones box as 1.
+    """Count each pack, loose stick, lighter, ashtray, speaker, earphones box, matchbox, cigarette holder, keyring watch, electric lighter, and wallet as 1.
 
     Sticks still inside a pack are not counted. A line is flagged when any
     of its detections is flagged, and ``unknown`` is always flagged.
@@ -241,6 +272,15 @@ def get_ocr() -> WordmarkReader | None:
 def is_weak(score: float, similarity: float | None) -> bool:
     """Low detector score that the gallery match does not make up for."""
     return score < REVIEW_SCORE and (similarity is None or similarity < STRONG_SIMILARITY)
+
+
+def gallery_confirms(item: Item, det: Detection, gallery: Gallery) -> bool:
+    """A fallback box counts only when it matched a SKU of its own category.
+
+    The fallback prompt also fires weakly on clumps of loose sticks, which
+    then match a stick band; those are dropped rather than counted.
+    """
+    return item.sku != UNKNOWN and gallery.category(item.sku) == det.category
 
 
 def pick_pack_size(
@@ -331,6 +371,13 @@ def _identify(
     if match.similarity < min_similarity:
         item.flagged = True
         return
+    weak = is_weak(det.score, match.similarity)
+    if gallery.category(match.sku) and (det.category == "cigarette_stick" or weak):
+        # Re-labelling overrides the detector, so it needs a confident match.
+        # Weak frame-edge and pack-edge boxes reach 0.74-0.80 on the bagged
+        # electric lighter references; real re-labelled products score 0.86+.
+        item.flagged = True
+        return
 
     item.sku = match.sku
     if det.category != "cigarette_stick":
@@ -344,7 +391,6 @@ def _identify(
             size_unsure = True
         else:
             item.sku = f"{match.sku}_{item.pack_size}"
-    weak = is_weak(det.score, match.similarity)
     thin_gap = match.margin is not None and match.margin < MIN_MARGIN
     if end_rival is not None:
         item.rival_sku, item.rival_similarity = end_rival.sku, end_rival.similarity
@@ -407,6 +453,10 @@ def run_detect(
             min_similarity=min_similarity,
             debug=None if debug_dir is None else (debug_dir, index),
         )
+    items = [
+        item for item, det in zip(items, detections) if not det.fallback or gallery_confirms(item, det, gallery)
+    ]
+    items = drop_split_fragments(items)
 
     if debug_dir is not None:
         _save_overlay(image, items, debug_dir / "boxes.jpg")
@@ -423,6 +473,11 @@ _OVERLAY_COLORS = {
     "ashtray": (0, 255, 0),
     "speaker": (255, 0, 255),
     "earphones": (255, 255, 0),
+    "matchbox": (0, 128, 255),
+    "cigarette_holder": (0, 180, 180),
+    "keyring_digital_watch": (180, 0, 255),
+    "electric_lighter": (255, 60, 60),
+    "wallet": (60, 200, 60),
 }
 
 

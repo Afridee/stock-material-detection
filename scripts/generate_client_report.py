@@ -75,6 +75,22 @@ CATEGORY_META = {
         "title": "Earphones",
         "rule": "Each earphones box counts as 1.",
     },
+    "matchbox": {
+        "title": "Matchbox",
+        "rule": "Each matchbox counts as 1.",
+    },
+    "cigarette_holder": {
+        "title": "Cigarette Holder",
+        "rule": "Each cigarette holder counts as 1.",
+    },
+    "keyring_digital_watch": {
+        "title": "Keyring with Digital Watch",
+        "rule": "Each keyring with digital watch counts as 1.",
+    },
+    "electric_lighter": {
+        "title": "Electric Lighter",
+        "rule": "Each electric lighter counts as 1.",
+    },
 }
 
 REASON_COPY = {
@@ -810,7 +826,7 @@ def render_html(rows: list[dict], ctx: dict) -> str:
       <h1>Stock Material Detection Report</h1>
       <p>
         Offline evaluation of {total} stock photo{"" if total == 1 else "s"} on {date.today():%d %B %Y}.
-        Each photo is scanned for cigarette packs, loose sticks, lighters, ashtrays, and speakers;
+        Each photo is scanned for cigarette packs, loose sticks, lighters, ashtrays, speakers, cigarette holders, keyring watches, and electric lighters;
         every item found is matched against the SKU reference gallery and counted per SKU.
         Items the system cannot identify with confidence are counted as <strong>Unknown</strong>
         and flagged for a human to review rather than guessed.

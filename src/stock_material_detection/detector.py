@@ -1,4 +1,4 @@
-"""Open-vocabulary detector for the five physical categories.
+"""Open-vocabulary detector for the physical categories.
 
 YOLOE with fixed text prompts is the v1 detector because there are no box
 labels to train on. If the YOLOE weights cannot load, YOLO-World runs with
@@ -35,7 +35,19 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-CATEGORIES = ("cigarette_pack", "cigarette_stick", "lighter", "ashtray", "speaker", "earphones")
+CATEGORIES = (
+    "cigarette_pack",
+    "cigarette_stick",
+    "lighter",
+    "ashtray",
+    "speaker",
+    "earphones",
+    "matchbox",
+    "cigarette_holder",
+    "keyring_digital_watch",
+    "electric_lighter",
+    "wallet",
+)
 
 # Text prompt -> category. Each category has its plain name plus a few
 # physical descriptions; class-agnostic NMS keeps the best-scoring one per
@@ -55,6 +67,48 @@ PROMPTS: dict[str, str] = {
     "ash tray": "ashtray",
     "speaker": "speaker",
     "bluetooth speaker": "speaker",
+    # The words "cigarette holder" stay under 0.05 on the Avon tube and score
+    # about 0.10 on loose sticks. "perfume bottle" boxes the tube (about 0.22
+    # with the wordmark facing the camera, about 0.52 on the plain side) and
+    # stayed under 0.05 on the sample packs, sticks, and matchbox. It is a
+    # main prompt: the plain-side photo is also a speaker box at about 0.08,
+    # and a fallback row is dropped wherever a main box overlaps.
+    "perfume bottle": "cigarette_holder",
+    # "keyring", "keychain", "carabiner", and "digital watch" all stay under
+    # 0.01 on the carabiner watch. "stopwatch" boxes it at 0.74-0.87, display
+    # lit or dark. See PROMPT_MIN_SCORES.
+    "stopwatch": "keyring_digital_watch",
+}
+
+# Per-prompt floor above ``min_score``. "stopwatch" also fires at about 0.07
+# on the LED battery display printed on the earphones box.
+PROMPT_MIN_SCORES: dict[str, float] = {
+    "stopwatch": 0.30,
+}
+
+# Prompts that only fill gaps: a box is kept only where no PROMPTS box
+# overlaps it (IoU) or contains most of it. The matchbox tube scores under
+# 0.2 on every prompt, and every tube-like prompt ("match tube", "matchbox",
+# "cylindrical tube") also outscores the real prompt on loose sticks, round
+# ashtrays, or packs, so it cannot compete in NMS.
+# The flat blue USB lighter scores under 0.05 on every lighter wording
+# ("electric lighter", "usb lighter", "arc lighter"). "blue box" boxes it at
+# 0.60-0.78 unwrapped and "blue plastic case" at about 0.56 in its bag, but
+# they also fire at 0.56 on a pack and 0.80 on the matchbox tube. Unwrapped,
+# the pack prompts box it first (0.55-0.90) and the gallery re-labels that box.
+# The boxed wallet (graffiti-print card box) scores 0.00 on "wallet", "purse",
+# "billfold", "card holder", and every pack prompt. "sign" boxes it at about
+# 0.65; a real sign in a later photo would need the gallery to confirm it.
+# The bare black leather wallet also scores 0.00 on every wallet wording.
+# "leather passport cover" boxes it at 0.56-0.61 and stays under 0.14 on the
+# other photos; "passport cover" and "black passport cover" fire at 0.56-0.72
+# on the speaker and earphones boxes.
+FALLBACK_PROMPTS: dict[str, str] = {
+    "match tube": "matchbox",
+    "blue box": "electric_lighter",
+    "blue plastic case": "electric_lighter",
+    "sign": "wallet",
+    "leather passport cover": "wallet",
 }
 
 DEFAULT_YOLOE_WEIGHTS = "yoloe-11l-seg.pt"
@@ -64,6 +118,8 @@ DEFAULT_WORLD_WEIGHTS = "yolov8l-worldv2.pt"
 # anything below its review score instead of trusting it.
 MIN_SCORE = 0.05
 NMS_IOU = 0.5
+FALLBACK_INSIDE = 0.8
+"""Share of a fallback box inside a kept box that drops it (a stick in a pack)."""
 # Portrait phone photos letterbox to 540×960 here. At 640 a stick is a few
 # pixels thick.
 IMAGE_SIZE = 960
@@ -123,6 +179,8 @@ class Detection:
     """xyxy in the oriented image."""
     polygon: np.ndarray | None = field(default=None, repr=False)
     """Segmentation outline in image pixels (N×2), when the model has masks."""
+    fallback: bool = False
+    """From a ``FALLBACK_PROMPTS`` prompt; the gallery must confirm it."""
 
 
 class Detector:
@@ -138,9 +196,9 @@ class Detector:
         present, ``False`` disables visual prompts, a path loads that file."""
         apply_torch_thread_limit()
         apply_opencv_thread_limit()
-        self._prompts = list(PROMPTS)
-        # Class index -> category, text classes first then visual classes.
-        self._categories: list[str] = [PROMPTS[p] for p in self._prompts]
+        self._prompts = list(PROMPTS) + list(FALLBACK_PROMPTS)
+        # Class index -> category: text, then fallback text, then visual.
+        self._categories: list[str] = [{**PROMPTS, **FALLBACK_PROMPTS}[p] for p in self._prompts]
         self.visual_categories: list[str] = []
         yoloe_weights = yoloe_weights or os.getenv("STOCK_YOLOE_WEIGHTS", DEFAULT_YOLOE_WEIGHTS)
         world_weights = world_weights or os.getenv("STOCK_WORLD_WEIGHTS", DEFAULT_WORLD_WEIGHTS)
@@ -189,8 +247,9 @@ class Detector:
     def _load_world(self, weights: str):
         from ultralytics import YOLOWorld
 
+        # Its NMS is class-agnostic, where fallback prompts would compete.
         model = YOLOWorld(weights)
-        model.set_classes(self._prompts)
+        model.set_classes(list(PROMPTS))
         return model
 
     def visual_prompt_embedding(self, image_bgr: np.ndarray, boxes: list[tuple[float, float, float, float]]) -> np.ndarray:
@@ -234,17 +293,18 @@ class Detector:
         # both its text row and its visual row; a visual box is kept only
         # when a text box of its category at or above ``min_score`` overlaps
         # it, then class-agnostic NMS picks the best row per object.
-        visual = bool(self.visual_categories)
+        # Fallback rows are added after that, only into gaps.
+        multi_label = self.backend.startswith("yoloe:")
         kwargs = dict(
             source=image_bgr,
             conf=min_score,
             iou=NMS_IOU,
-            agnostic_nms=not visual,
+            agnostic_nms=not multi_label,
             imgsz=IMAGE_SIZE,
             device="cpu",
             verbose=False,
         )
-        if visual:
+        if multi_label:
             # YOLOE.predict does not pass ``predictor`` on, so use the base method.
             from ultralytics.engine.model import Model
 
@@ -260,11 +320,17 @@ class Detector:
         classes = boxes.cls.cpu().numpy().astype(int)
         polygons = result.masks.xy if result.masks is not None else [None] * len(xyxy)
 
-        if visual:
-            keep = self._support_visual_boxes(xyxy, scores, classes)
+        keep = np.flatnonzero(scores >= self._score_floors(classes))
+        xyxy, scores, classes = xyxy[keep], scores[keep], classes[keep]
+        polygons = [polygons[i] for i in keep]
+
+        if multi_label:
+            keep = self._select_boxes(xyxy, scores, classes)
             xyxy, scores, classes = xyxy[keep], scores[keep], classes[keep]
             polygons = [polygons[i] for i in keep]
 
+        n_main = len(PROMPTS)
+        n_text = len(self._prompts)
         detections: list[Detection] = []
         for box, score, cls, poly in zip(xyxy, scores, classes, polygons):
             category = self._categories[cls]
@@ -274,21 +340,48 @@ class Detector:
                     score=float(score),
                     box=tuple(float(v) for v in box),
                     polygon=None if poly is None or len(poly) < 3 else np.asarray(poly, dtype=np.float32),
+                    fallback=n_main <= cls < n_text,
                 )
             )
         return detections
 
-    def _support_visual_boxes(self, xyxy: np.ndarray, scores: np.ndarray, classes: np.ndarray) -> list[int]:
-        """Indices to keep: unsupported visual rows go, then class-agnostic NMS."""
+    def _score_floors(self, classes: np.ndarray) -> np.ndarray:
+        """``PROMPT_MIN_SCORES`` per row; visual rows have none."""
         n_text = len(self._prompts)
+        return np.array([PROMPT_MIN_SCORES.get(self._prompts[c], 0.0) if c < n_text else 0.0 for c in classes])
+
+    def _select_boxes(self, xyxy: np.ndarray, scores: np.ndarray, classes: np.ndarray) -> list[int]:
+        """Indices to keep.
+
+        Unsupported visual rows go, then class-agnostic NMS, then fallback
+        rows that land in a gap.
+        """
+        n_text = len(self._prompts)
+        n_main = n_text - len(FALLBACK_PROMPTS)
         categories = np.array([self._categories[c] for c in classes])
         is_visual = classes >= n_text
-        keep = np.ones(len(xyxy), dtype=bool)
+        is_fallback = (classes >= n_main) & ~is_visual
+        keep = ~is_fallback
         for i in np.flatnonzero(is_visual):
-            same = np.flatnonzero(~is_visual & (categories == categories[i]))
+            same = np.flatnonzero(~is_visual & ~is_fallback & (categories == categories[i]))
             keep[i] = bool(len(same)) and bool((box_iou(xyxy[i], xyxy[same]) >= NMS_IOU).any())
         candidates = np.flatnonzero(keep)
-        return [int(candidates[i]) for i in nms(xyxy[candidates], scores[candidates], NMS_IOU)]
+        kept = [int(candidates[i]) for i in nms(xyxy[candidates], scores[candidates], NMS_IOU)]
+
+        # Per category: a blue-case box that wins the matchbox tube would
+        # otherwise suppress the tube box, then fail gallery confirmation.
+        main_kept = list(kept)
+        for category in dict.fromkeys(categories[is_fallback]):
+            fallback = np.flatnonzero(is_fallback & (categories == category))
+            for i in nms(xyxy[fallback], scores[fallback], NMS_IOU):
+                index = int(fallback[i])
+                if main_kept and (
+                    (box_iou(xyxy[index], xyxy[main_kept]) >= NMS_IOU).any()
+                    or (inside_share(xyxy[index], xyxy[main_kept]) >= FALLBACK_INSIDE).any()
+                ):
+                    continue
+                kept.append(index)
+        return kept
 
 
 @functools.cache
@@ -323,6 +416,16 @@ def box_iou(box: np.ndarray, others: np.ndarray) -> np.ndarray:
     area = (box[2] - box[0]) * (box[3] - box[1])
     areas = (others[:, 2] - others[:, 0]) * (others[:, 3] - others[:, 1])
     return inter / np.maximum(area + areas - inter, 1e-6)
+
+
+def inside_share(box: np.ndarray, others: np.ndarray) -> np.ndarray:
+    """Share of ``box``'s area inside each row of ``others``."""
+    ix1 = np.maximum(box[0], others[:, 0])
+    iy1 = np.maximum(box[1], others[:, 1])
+    ix2 = np.minimum(box[2], others[:, 2])
+    iy2 = np.minimum(box[3], others[:, 3])
+    inter = np.clip(ix2 - ix1, 0, None) * np.clip(iy2 - iy1, 0, None)
+    return inter / max((box[2] - box[0]) * (box[3] - box[1]), 1e-6)
 
 
 def nms(xyxy: np.ndarray, scores: np.ndarray, iou_threshold: float) -> list[int]:

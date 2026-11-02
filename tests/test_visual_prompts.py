@@ -6,7 +6,15 @@ from pathlib import Path
 
 import numpy as np
 
-from stock_material_detection.detector import PROMPTS, Detector, box_iou, load_visual_prompts, nms
+from stock_material_detection.detector import (
+    FALLBACK_PROMPTS,
+    PROMPT_MIN_SCORES,
+    PROMPTS,
+    Detector,
+    box_iou,
+    load_visual_prompts,
+    nms,
+)
 
 
 def _write(path: Path, categories: list[str], vpe: np.ndarray) -> Path:
@@ -65,15 +73,15 @@ def test_nms_keeps_best_per_object_in_score_order() -> None:
 
 def _bare_detector(visual: list[str]) -> Detector:
     det = Detector.__new__(Detector)
-    det._prompts = list(PROMPTS)
-    det._categories = [PROMPTS[p] for p in det._prompts] + visual
+    det._prompts = list(PROMPTS) + list(FALLBACK_PROMPTS)
+    det._categories = [{**PROMPTS, **FALLBACK_PROMPTS}[p] for p in det._prompts] + visual
     det.visual_categories = visual
     return det
 
 
 def test_visual_box_needs_an_overlapping_text_box_of_its_category() -> None:
     det = _bare_detector(["cigarette_pack"])
-    n_text = len(PROMPTS)
+    n_text = len(det._prompts)
     pack_text = det._prompts.index("product box")
     ashtray_text = det._prompts.index("ashtray")
     xyxy = np.array(
@@ -89,7 +97,61 @@ def test_visual_box_needs_an_overlapping_text_box_of_its_category() -> None:
     scores = np.array([0.20, 0.90, 0.30, 0.70, 0.15])
     classes = np.array([pack_text, n_text, ashtray_text, n_text, n_text])
 
-    assert det._support_visual_boxes(xyxy, scores, classes) == [1, 2]
+    assert det._select_boxes(xyxy, scores, classes) == [1, 2]
+
+
+def test_fallback_box_only_fills_gaps() -> None:
+    det = _bare_detector([])
+    stick = det._prompts.index("cigarette stick")
+    pack = det._prompts.index("product box")
+    tube = det._prompts.index("match tube")
+    xyxy = np.array(
+        [
+            [100, 100, 120, 200],  # text stick
+            [100, 100, 120, 200],  # tube on the same stick, higher -> dropped
+            [300, 300, 500, 500],  # text pack
+            [310, 320, 330, 400],  # tube inside the pack -> dropped
+            [600, 600, 800, 680],  # tube where nothing else fired -> kept
+        ],
+        dtype=float,
+    )
+    scores = np.array([0.10, 0.30, 0.60, 0.20, 0.13])
+    classes = np.array([stick, tube, pack, tube, tube])
+
+    kept = det._select_boxes(xyxy, scores, classes)
+
+    assert kept == [2, 0, 4]
+    assert det._categories[classes[4]] == "matchbox"
+
+
+def test_blue_case_prompts_are_electric_lighter_fallbacks() -> None:
+    det = _bare_detector([])
+
+    for prompt in ("blue box", "blue plastic case"):
+        index = det._prompts.index(prompt)
+        assert index >= len(PROMPTS)
+        assert det._categories[index] == "electric_lighter"
+
+
+def test_wallet_prompts_are_wallet_fallbacks() -> None:
+    det = _bare_detector([])
+
+    for prompt in ("sign", "leather passport cover"):
+        index = det._prompts.index(prompt)
+        assert index >= len(PROMPTS)
+        assert det._categories[index] == "wallet"
+
+
+def test_prompt_score_floor_applies_to_its_prompt_only() -> None:
+    det = _bare_detector(["cigarette_pack"])
+    watch = det._prompts.index("stopwatch")
+    stick = det._prompts.index("cigarette stick")
+    visual = len(det._prompts)
+
+    floors = det._score_floors(np.array([watch, stick, visual]))
+
+    assert floors.tolist() == [PROMPT_MIN_SCORES["stopwatch"], 0.0, 0.0]
+    assert det._categories[watch] == "keyring_digital_watch"
 
 
 def test_shipped_file_is_valid() -> None:

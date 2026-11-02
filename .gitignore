@@ -21,6 +21,9 @@ dist/
 .env.*
 !.env.example
 
+# Local tuning / probe runs (batch JSON, debug crops, sample photos)
+.scratch/
+
 # Debug crops and smoke-test output
 debug/
 smoke-results/
