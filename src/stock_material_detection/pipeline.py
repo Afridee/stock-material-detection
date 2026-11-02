@@ -221,7 +221,7 @@ def mark_inside_packs(items: list[Item], threshold: float = INSIDE_PACK_OVERLAP)
 
 
 def aggregate(items: list[Item]) -> list[CountLine]:
-    """Count each pack, loose stick, lighter, ashtray, speaker, earphones box, matchbox, cigarette holder, keyring watch, electric lighter, and wallet as 1.
+    """Count each pack, loose stick, lighter, ashtray, speaker, earphones box, matchbox, cigarette holder, keyring watch, electric lighter, wallet, and bag as 1.
 
     Sticks still inside a pack are not counted. A line is flagged when any
     of its detections is flagged, and ``unknown`` is always flagged.
@@ -478,6 +478,7 @@ _OVERLAY_COLORS = {
     "keyring_digital_watch": (180, 0, 255),
     "electric_lighter": (255, 60, 60),
     "wallet": (60, 200, 60),
+    "bag": (200, 120, 60),
 }
 
 

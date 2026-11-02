@@ -3,7 +3,7 @@
 Counts stock materials in one phone photo of items on a surface. Output is a count per SKU, plus a flag when a human should review that line.
 
 1. Pillow EXIF rotate, so boxes are in the upright frame
-2. Ultralytics YOLOE (open-vocabulary) boxes the physical categories: `cigarette_pack`, `cigarette_stick`, `lighter`, `ashtray`, `speaker`, `cigarette_holder`, `keyring_digital_watch`, plus gallery-confirmed fallback prompts for `matchbox`, `electric_lighter`, and `wallet`. Text prompts plus, for packs, a visual prompt built from in-scene photos (`visual_prompts/`)
+2. Ultralytics YOLOE (open-vocabulary) boxes the physical categories: `cigarette_pack`, `cigarette_stick`, `lighter`, `ashtray`, `speaker`, `cigarette_holder`, `keyring_digital_watch`, `bag`, plus gallery-confirmed fallback prompts for `matchbox`, `electric_lighter`, and `wallet`. Text prompts plus, for packs, a visual prompt built from in-scene photos (`visual_prompts/`)
 3. Each box is cropped. Sticks are cut down to their printed filter band. Lighters also get a color histogram
 4. SigLIP 2 (`google/siglip2-base-patch16-224`) embeds the crop and ranks it against `gallery/<sku>/` reference crops
 5. Optional PaddleOCR confirms the printed wordmark on pack and lighter crops (`STOCK_OCR=1`)
@@ -106,7 +106,7 @@ Rebuild after changing `STOCK_YOLOE_WEIGHTS`; the file is tied to the checkpoint
 
 - A pack counts as 1, closed or open.
 - A loose stick counts as 1. A stick whose box is at least 60% inside a pack box is still in the pack and is not counted.
-- Each lighter, ashtray, speaker, earphones box, matchbox, cigarette holder, keyring with digital watch, electric lighter, and wallet counts as 1.
+- Each lighter, ashtray, speaker, earphones box, matchbox, cigarette holder, keyring with digital watch, electric lighter, wallet, and bag counts as 1.
 - A box with at least 80% of its area inside a higher-scoring box of the same category (half a pack, a slid-out inner sleeve) is a fragment and is dropped before counting.
 - An unnamed box with at least 30% of its area inside a named box, whose closest gallery image is from that box's SKU, is a split-off piece of the same object (the end of a USB lighter boxed separately as "lighter") and is not counted.
 - No gallery hit gives `sku: unknown` and `flagged: true`. The pipeline never guesses a brand.
@@ -143,6 +143,8 @@ The electric lighter (a flat blue rechargeable USB lighter with the AVON wordmar
 The branded wallet comes in a flat card box with a graffiti "X FACTOR UNLOCKED" print. Every main prompt, "wallet", "purse", "billfold", and "card holder" score 0.00 on it. `sign` boxes it at about 0.65 and stayed under 0.05 on the other sample photos, so it is a fallback prompt for `wallet`. `gallery/branded_wallet/` holds the box front, with `category.txt` set to `wallet`. It matches at 0.99 on its own photo. That is the only photo so far, so the back of the box and other angles are untested.
 
 The same wallet out of its box (black leather bifold, the brand logo embossed on one face) also scores 0.00 on every wallet wording and on `sign`. `leather passport cover` boxes it at 0.56 to 0.61 and stayed under 0.14 on the other sample photos, so it is a second `wallet` fallback prompt. `passport cover` and `black passport cover` were rejected because they fire at 0.56 to 0.72 on the speaker and earphones boxes. With the logo side up, a pack prompt boxes it first (0.81) and the gallery re-labels that box. `gallery/branded_wallet_unboxed/` holds the plain face and the logo face, with `category.txt` set to `wallet`. Both match at 0.99 or higher on their own photos. Before the folder existed, both photos matched the bagged electric lighter at 0.71 to 0.79.
+
+The branded waist bag (dark denim, "X FORCE" print) scores nothing on `bag`, `waist bag`, `fanny pack`, `belt bag`, `bum bag`, `pouch`, or `handbag`. `denim bag` boxes it at about 0.87 unwrapped and 0.14 to 0.41 in its plastic bag, and `wrapped denim bag` at 0.19 to 0.52 in the bag. Both are main prompts for `bag`, because in the second bagged photo `perfume bottle` boxes the same object at 0.08, and a fallback row would have been dropped there. On the other sample photos they stay under 0.30 and lose NMS to the pack boxes. `PROMPT_MIN_SCORES` drops bag boxes under 0.15, which removes a 0.05 box on a leg at the frame edge. `gallery/force_waist_bag/` holds the unwrapped front and two bagged fronts, with `category.txt` set to `bag`. Before the second bagged crop was added, that photo matched the other two at 0.98. Only the front has been photographed so far.
 
 Vectors are cached in `gallery/.embeddings.npz` and rebuilt when a reference file changes.
 

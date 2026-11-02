@@ -47,6 +47,7 @@ CATEGORIES = (
     "keyring_digital_watch",
     "electric_lighter",
     "wallet",
+    "bag",
 )
 
 # Text prompt -> category. Each category has its plain name plus a few
@@ -78,12 +79,22 @@ PROMPTS: dict[str, str] = {
     # 0.01 on the carabiner watch. "stopwatch" boxes it at 0.74-0.87, display
     # lit or dark. See PROMPT_MIN_SCORES.
     "stopwatch": "keyring_digital_watch",
+    # The denim waist bag scores nothing on "bag", "waist bag", "fanny pack",
+    # "belt bag", "pouch", or "handbag". "denim bag" boxes it at about 0.87
+    # unwrapped and 0.14-0.41 in its plastic bag; "wrapped denim bag" adds
+    # 0.19-0.52 on the wrapped bag. Both stay under 0.30 on the other photos.
+    "denim bag": "bag",
+    "wrapped denim bag": "bag",
 }
 
 # Per-prompt floor above ``min_score``. "stopwatch" also fires at about 0.07
-# on the LED battery display printed on the earphones box.
+# on the LED battery display printed on the earphones box. The bag prompts
+# fire at 0.05-0.11 on a leg at the frame edge and on pack photos; the
+# wrapped bag's weakest real box is 0.19.
 PROMPT_MIN_SCORES: dict[str, float] = {
     "stopwatch": 0.30,
+    "denim bag": 0.15,
+    "wrapped denim bag": 0.15,
 }
 
 # Prompts that only fill gaps: a box is kept only where no PROMPTS box

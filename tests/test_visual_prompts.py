@@ -142,6 +142,16 @@ def test_wallet_prompts_are_wallet_fallbacks() -> None:
         assert det._categories[index] == "wallet"
 
 
+def test_bag_prompts_are_main_prompts_with_a_floor() -> None:
+    det = _bare_detector([])
+
+    for prompt in ("denim bag", "wrapped denim bag"):
+        index = det._prompts.index(prompt)
+        assert index < len(PROMPTS)
+        assert det._categories[index] == "bag"
+        assert det._score_floors(np.array([index])).tolist() == [PROMPT_MIN_SCORES[prompt]]
+
+
 def test_prompt_score_floor_applies_to_its_prompt_only() -> None:
     det = _bare_detector(["cigarette_pack"])
     watch = det._prompts.index("stopwatch")
