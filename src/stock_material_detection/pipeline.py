@@ -5,8 +5,8 @@ match -> optional wordmark OCR -> group by ``(sku, category)``.
 
 Thresholds
 ----------
-These are conservative starting points, not tuned against labels (there are
-none yet). Raise or lower them once a gallery and a labeled audit set exist.
+These are conservative starting points, not tuned against a labeled audit
+set (there is none yet). Raise or lower them once that set exists.
 
 ``MIN_SCORE`` (detector.py, ``--min-score``)
     Detector boxes below this are dropped.

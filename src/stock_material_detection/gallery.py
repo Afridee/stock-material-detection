@@ -14,16 +14,19 @@ band. Those files are the right shape to copy into ``gallery/<sku>/``.
 
 Optional ``gallery/<sku>/wordmark.txt`` holds the Latin wordmark printed on
 the product (for example ``AVON``). Without it, the first word of the folder
-name is used. The wordmark is only read when ``STOCK_OCR=1``.
+name is used. It is read only when ``STOCK_OCR=1`` and the category after
+relabeling is a pack, a lighter, or earphones.
 
 Optional ``gallery/<sku>/pack_sizes.json`` splits a brand sold in more than one
 pack size with the same artwork, for example ``{"20": 1.58, "10": 2.03}``.
 Values are the front face's long side over its short side. A matched pack is
 reported as ``<sku>_<size>`` (``black_diamond_20``).
 
-Optional ``gallery/<sku>/category.txt`` names the category of a product the
-detector has no prompt for (for example ``earphones``). A matched box takes
-that category instead of the detector's; stick bands are never re-labelled.
+Optional ``gallery/<sku>/category.txt`` names the category to use instead of
+the detector's. That covers a product with no prompt of its own (earphones)
+and a product found by a stand-in prompt (a paper ashtray boxed as a
+stopwatch, a mini speaker boxed as a product box). A matched box takes that
+category; stick bands are never re-labelled.
 
 Vectors are cached in ``gallery/.embeddings.npz`` and rebuilt when a file
 is added, removed, or changed.
@@ -307,7 +310,7 @@ def _latin(text: str) -> str:
 
 
 class WordmarkReader:
-    """PaddleOCR on pack and lighter crops. Confirms a gallery hit; never picks one."""
+    """PaddleOCR on pack, lighter, and earphones crops. Confirms a gallery hit; never picks one."""
 
     MIN_LETTERS = 3
 

@@ -3,10 +3,10 @@
 Counts stock materials in one phone photo of items on a surface. Output is a count per SKU, plus a flag when a human should review that line.
 
 1. Pillow EXIF rotate, so boxes are in the upright frame
-2. Ultralytics YOLOE (open-vocabulary) boxes the physical categories: `cigarette_pack`, `cigarette_stick`, `lighter`, `ashtray`, `speaker`, `cigarette_holder`, `keyring_digital_watch`, `bag`, plus gallery-confirmed fallback prompts for `matchbox`, `electric_lighter`, and `wallet`. Text prompts plus, for packs, a visual prompt built from in-scene photos (`visual_prompts/`)
+2. Ultralytics YOLOE (open-vocabulary) boxes the physical categories: `cigarette_pack`, `cigarette_stick`, `lighter`, `ashtray`, `speaker`, `cigarette_holder`, `keyring_digital_watch`, `bag`, plus gallery-confirmed fallback prompts for `matchbox`, `electric_lighter`, and `wallet`. Text prompts plus visual prompts for packs and sticks, built from in-scene photos (`visual_prompts/`)
 3. Each box is cropped. Sticks are cut down to their printed filter band. Lighters also get a color histogram
 4. SigLIP 2 (`google/siglip2-base-patch16-224`) embeds the crop and ranks it against `gallery/<sku>/` reference crops
-5. Optional PaddleOCR confirms the printed wordmark on pack and lighter crops (`STOCK_OCR=1`)
+5. Optional PaddleOCR confirms the printed wordmark on pack, lighter, and earphones crops (`STOCK_OCR=1`)
 6. Counts are grouped by `(sku, category)`
 
 Brand, variant, filter pattern, and lighter print are not detector classes. A new SKU is a folder of reference crops, not a new detector class.
@@ -62,7 +62,7 @@ Exit code is `0` on success and `1` when the image is unreadable.
 
 - `box` is xyxy in the oriented image.
 - `score` is the detector score. `similarity` is the best gallery cosine, `null` when the gallery is empty.
-- Stick detections also carry `insidePack`. Lighters carry `colorSimilarity` once matched. With OCR on, packs and lighters carry `wordmark`: `confirmed`, `mismatch`, or absent when no Latin text was readable.
+- Stick detections also carry `insidePack`. Lighters carry `colorSimilarity` once matched. With OCR on, packs, lighters, and earphones carry `wordmark`: `confirmed`, `mismatch`, or absent when no Latin text was readable.
 - Packs of a SKU with `pack_sizes.json` carry `faceAspect`, plus `packSize` when it matched a listed size.
 - Close calls carry `rivalSku` and `rivalSimilarity`: the runner-up SKU when it is within the margin of the match, or the SKU named by the other end of a stick.
 - A gallery hit also carries `matchRef` (`sku/file.jpg`): the reference image with the highest cosine. Close calls add `rivalRef` for the other image.
@@ -112,7 +112,7 @@ Rebuild after changing `STOCK_YOLOE_WEIGHTS`; the file is tied to the checkpoint
 - No gallery hit gives `sku: unknown` and `flagged: true`. The pipeline never guesses a brand.
 - A line is flagged when any of its detections is flagged.
 
-A detection is flagged when any of these hold. The values are conservative starting points, not tuned against labels (there are none yet). Revisit them once a gallery and a labeled audit set exist.
+A detection is flagged when any of these hold. The values are conservative starting points, not tuned against a labeled audit set (there is none yet).
 
 | Constant | Default | Flags when |
 |----------|---------|------------|
@@ -124,9 +124,9 @@ A detection is flagged when any of these hold. The values are conservative start
 
 ## Gallery
 
-`gallery/` starts empty, so every `sku` is `unknown` until references are added. That is the correct result.
+`gallery/` holds the reference crops. Cigarette brands in it are Aris Apple, Aris Strawberry, Avon Blue, Black Diamond, Esse Change Mango, Esse Prime, Maxim Prime, Maxim X Bolt, and Maxim Double Burst. The other folders are the products below. With no reference images, every `sku` is `unknown`. That is the correct result.
 
-To add an SKU, create `gallery/<sku>/` and put tight reference crops in it (`.jpg`, `.jpeg`, `.png`). The folder name becomes the `sku`. One folder can hold every form of the product: pack faces, stick filter bands, and lighter bodies. Crops from `--debug-dir` are the right shape to copy in. For OCR, add `gallery/<sku>/wordmark.txt` with the printed Latin wordmark (for example `AVON`). Without it, the first word of the folder name is used.
+To add an SKU, create `gallery/<sku>/` and put tight reference crops in it (`.jpg`, `.jpeg`, `.png`). The folder name becomes the `sku`. One folder can hold every form of the product: pack faces, stick filter bands, and lighter bodies. Crops from `--debug-dir` are the right shape to copy in. For OCR on a pack, lighter, or earphones SKU, add `gallery/<sku>/wordmark.txt` with the printed Latin wordmark (for example `AVON`). Without it, the first word of the folder name is used. The check runs after gallery relabeling, so a `wordmark.txt` on an ashtray, bag, holder, electric lighter, speaker, or wallet is not read.
 
 A product with no detector category of its own, such as boxed earphones, is still boxed (usually as `cigarette_pack`, via the `product box` prompt). Add `gallery/<sku>/category.txt` naming its category (for example `earphones`) and a matched box is re-labelled to it. Unmatched boxes keep the detector's category. Re-labelling overrides the detector, so a weak box (score under `REVIEW_SCORE` and cosine under `STRONG_SIMILARITY`) that matches such a SKU stays `unknown` and flagged, and a stick box that matches one (a USB cable, a case edge) always does. `gallery/cyxg_x87/` is the example. Text prompts like "earbuds" were tried and fire on the earbuds pictured on the box, not the box itself, so the gallery decides instead.
 
@@ -134,9 +134,11 @@ Some products are not boxed by any of the main prompts at all. `FALLBACK_PROMPTS
 
 The cigarette holder is a main prompt. The words "cigarette holder" stay under 0.05 on the Avon tube and score about 0.10 on loose sticks. `perfume bottle` boxes the tube (about 0.22 with the wordmark facing the camera, about 0.52 on the plain side) and stayed under 0.05 on the sample packs, sticks, and matchbox. It cannot be a fallback prompt: the plain-side photo is also a speaker box at about 0.08, and a fallback row is dropped wherever a main box overlaps. `gallery/cigarette_holder/` holds both angles, and its `category.txt` is `cigarette_holder`, so a speaker or pack box that wins the same object is still re-labelled on a gallery hit. A real perfume bottle in a later photo will be labelled `cigarette_holder` too.
 
-The keyring with digital watch (a carabiner clip with a round LED watch face) is a main prompt too. "keyring", "keychain", "carabiner", and "digital watch" stay under 0.01 on it. `stopwatch` boxes it at about 0.74 with the display dark and about 0.87 with it lit. It also fires at about 0.07 on the LED battery display printed on the earphones box, so `PROMPT_MIN_SCORES` in `detector.py` drops `stopwatch` boxes under 0.30. `gallery/keyring_digital_watch/` holds both display states, with `category.txt` set to `keyring_digital_watch`. A real stopwatch in a later photo will be labelled a keyring watch too.
+The keyring with digital watch (a carabiner clip with a round LED watch face) is a main prompt too. "keyring", "keychain", "carabiner", and "digital watch" stay under 0.01 on it. `stopwatch` boxes it at about 0.74 with the display dark and about 0.87 with it lit. It also fires at about 0.07 on the LED battery display printed on the earphones box, so `PROMPT_MIN_SCORES` in `detector.py` drops `stopwatch` boxes under 0.30. `gallery/keyring_digital_watch/` holds both display states and a bagged back, with `category.txt` set to `keyring_digital_watch`. A real stopwatch in a later photo will be labelled a keyring watch too.
 
 The paper ashtray (a printed card wall around a blue sand base) needs no prompt of its own. From the side, `ashtray` boxes it at about 0.60. Seen top-down, `stopwatch` wins it at about 0.49 (a keyring watch). `gallery/paper_ashtray/` holds both views, with `category.txt` set to `ashtray`, so the top-down box is re-labelled on a gallery hit.
+
+The mini speaker is a white carton with a red "music" wordmark. On `SAMPLE IMAGES/BR00114-02.jpg` the pack prompts box it (`cigarette_pack`, score 0.09). `gallery/mini_sound_box/` holds four faces (wordmark, feature icons, ports, and the grille), with `category.txt` set to `speaker`, so that box is relabelled. It matches `face_wordmark.jpg` at 0.86 and is not flagged. Before the folder existed, two of the faces matched `cyxg_x87`.
 
 The electric lighter (a flat blue rechargeable USB lighter with the AVON wordmark) scores under 0.05 on every lighter wording tried: "electric lighter", "usb lighter", "rechargeable lighter", "arc lighter". Unwrapped, the pack prompts box it at 0.55 to 0.90. In its plastic bag nothing main boxes it. `blue box` (0.60 to 0.78 unwrapped) and `blue plastic case` (about 0.56 bagged) are fallback prompts for `electric_lighter`. They are not main prompts because they also fire at 0.56 on a pack and 0.80 on the matchbox tube. Fallback rows are suppressed per category, so a blue-case box does not hide the `match tube` box on the same tube. `gallery/electric_lighter/` holds both faces, bare and bagged, with `category.txt` set to `electric_lighter`. Real crops match at 0.91 to 0.98. Pack edges, frame edges, and the ashtray base reach 0.74 to 0.80 on the bagged references, which is why weak boxes need a strong match before they are re-labelled.
 
@@ -181,6 +183,7 @@ On an Apple Silicon laptop at 1 thread, the detector takes about 0.45 s per phot
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `STOCK_NUM_THREADS` | `1` | CPU threads for inference |
+| `LOG_LEVEL` | `WARNING` on the CLI, `INFO` on the API | Python logging level |
 | `STOCK_OCR` | `0` | `1` enables the PaddleOCR wordmark check |
 | `STOCK_GALLERY_DIR` | `gallery/` | Gallery folder |
 | `STOCK_WEIGHTS_DIR` | `weights/` | Detector weights and text encoder |
@@ -192,7 +195,7 @@ On an Apple Silicon laptop at 1 thread, the detector takes about 0.45 s per phot
 
 ## Tests
 
-No model download. Covers thread defaults, EXIF orientation, the stick filter band on a synthetic rotated stick, the counting rules, and the API with the pipeline stubbed.
+No model download. Covers thread defaults, EXIF orientation, stick filter bands, color histograms, the counting rules (pack size, nested fragments, split-off pieces, and stick-end disagreements), gallery match refs, category relabeling, visual-prompt gating and fallback prompts, and the API with the pipeline stubbed.
 
 ```bash
 uv run pytest
@@ -200,13 +203,17 @@ uv run pytest
 
 ## Smoke test and known limits
 
-`smoke-results/` has the `detect` JSON for the four photos in `SAMPLE IMAGES/`, run with an empty gallery.
+`smoke-results/` has the `detect` JSON for the four photos in `SAMPLE IMAGES/`, regenerated on 3 November 2026 with the gallery in this repo and the shipped visual prompts.
 
-| Photo | In the photo | Detected |
-|-------|--------------|----------|
-| `BR00038-01.jpg` | 1 open pack, 5 loose sticks | 1 pack, 0 sticks |
-| `BR00038-02.jpg` | 1 open pack, 5 loose sticks | 1 pack, 1 stick |
-| `BR00108-01.jpg` | 2 packs, 4 lighters | 7 "packs" (2 real packs, lighter bodies and heads), 2 "sticks" (paint marks) |
-| `BR00114-02.jpg` | 1 ashtray, 2 packs (1 open), 1 speaker box | 1 ashtray, 2 packs, no speaker |
+| Photo | In the photo | Counted |
+|-------|--------------|---------|
+| `BR00038-01.jpg` | 1 open pack, 5 loose sticks | 2 Aris Apple packs (1 flagged). The stick inside the pack is not counted |
+| `BR00038-02.jpg` | 1 open pack, 5 loose sticks | 1 Aris Apple pack, 1 Aris Apple stick (flagged) |
+| `BR00108-01.jpg` | 2 packs, 4 lighters | 4 Avon Blue packs and 4 unknown packs, 3 sticks, 1 unknown speaker. No lighter |
+| `BR00114-02.jpg` | 1 ashtray, 2 packs (1 open), 1 speaker box | 1 paper ashtray, 1 Aris Apple pack, 1 Maxim Double Burst pack (flagged), 1 Mini Sound Box |
 
-Packs are reliable (scores 0.3 to 0.9). Sticks inside open packs are correctly not counted. The weak part is the zero-shot detector on the other categories: no prompt wording made YOLOE score these sleeved lighters as "lighter", loose sticks mostly score under 0.05, and the speaker box reads as a plain box. Wrong boxes are flagged (low score, `unknown`), not silently trusted, but counts for sticks and lighters are not usable yet. Fixing that needs either box labels for a fine-tuned detector or a second category check on each crop; both are outside this v1.
+The two clear Avon packs in `BR00108-01.jpg` score 0.99 and 0.97 and match at 0.98 and 0.94. None of the other boxes on that photo is a `lighter`. The extra boxes the gallery names are flagged: the score is low, or the crop matches a stick band. Loose sticks on the open Aris packs are still mostly missed. One stick sits inside the pack and is not counted. The one loose stick that is counted is flagged because Aris Strawberry is within 0.02.
+
+`BR00114-02.jpg` names every object. The ashtray and the mini speaker stay unflagged on gallery cosines of 0.86, which clears `STRONG_SIMILARITY` and excuses detector scores of 0.18 and 0.09. The open pack is flagged: its score is 0.15 and its cosine is 0.80.
+
+A gallery hit can also name the wrong box. The second pack on `BR00038-01.jpg` matches an Aris Apple stick band at 0.79 and is flagged because Avon Blue is 0.01 behind. Stick and lighter counts on these four photos are still weak. The 13 October files were an empty-gallery run: every SKU was `unknown`, the speaker was missed, and `BR00038-01.jpg` had no stick.
