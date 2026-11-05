@@ -87,6 +87,24 @@ uv run python scripts/generate_client_report.py \
 
 `--dir` can be repeated. `--min-score`, `--min-similarity`, and `--gallery` mean the same as on `detect`. Requires Google Chrome for the HTML → PDF step.
 
+### Capacity PDF
+
+Measures what one `POST /detect` costs on this machine: model load, steady-state latency, CPU time, and resident memory. Same `run_detect` path as the API. Writes HTML, prints it to PDF with Chrome, and keeps both.
+
+```bash
+uv run python scripts/benchmark_capacity.py
+```
+
+Defaults: `SAMPLE IMAGES/` and `totest/` (whichever exist), output `reports/processing_capacity.pdf`. The HTML, a Markdown copy, and `reports/processing_capacity.json` are written beside the PDF.
+
+```bash
+uv run python scripts/benchmark_capacity.py --from-json reports/processing_capacity.json
+uv run python scripts/benchmark_capacity.py \
+  --dir "/path/to/photos" --limit 8 --skip-ocr
+```
+
+`--from-json` reprints the PDF from a previous measurement without loading the models. `--dir` can be repeated. `--skip-ocr` leaves out the `STOCK_OCR=1` run. `--skip-sweep` skips the extra `STOCK_NUM_THREADS` comparison. Requires Google Chrome. Run it on the machine you will deploy to; a PDF from a laptop is not the production budget.
+
 ### Visual prompts
 
 Text prompts alone score these packs low (0.1–0.7 on a clear pack): half the face is a graphic health warning and the open slide packs are L-shaped. YOLOE also accepts visual prompts, so `visual_prompts/<weights>.npz` adds one visual class per category next to the text classes. The visual class only re-scores objects the text prompts already found: a visual box is kept when a text box of the same category (at or above `--min-score`) overlaps it by IoU ≥ 0.5, otherwise it is dropped, and class-agnostic NMS then keeps the best box per object. On its own the pack prompt also fires on ashtrays and whole frames; with the gate, the set of boxes is the same as text-only and only the scores change. With the shipped file, whole packs score 0.36–0.98 instead of 0.06–0.68 on the same photos, and loose sticks on `totest/` score 0.50–0.93 instead of 0.12–0.55. Sticks still inside a pack keep their low scores.
@@ -170,13 +188,13 @@ curl -s -X POST http://localhost:8000/detect \
 | `GET /health` | Liveness, no auth |
 | `X-API-Key` | Required only when `SERVICE_API_KEY` is set |
 
-Models load once at startup (`STOCK_WARMUP=0` defers that to the first request). One lock wraps the whole pipeline, so one photo is in the model at a time. Run one uvicorn process with no extra workers.
+Models load once at startup (`STOCK_WARMUP=0` defers that to the first request). One lock wraps the whole pipeline, so one photo is in the model at a time. Run one uvicorn process with no extra workers. RAM, CPU, and how many of those processes to run are measured by `scripts/benchmark_capacity.py`.
 
 ## CPU threads
 
 Inference defaults to 1 CPU thread. Set `STOCK_NUM_THREADS` to a positive integer to override it. Before OpenCV, PyTorch, or Paddle loads, any unset `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, and `OPENBLAS_NUM_THREADS` is set to that count; a value already in the environment is left as-is. PyTorch intra-op and inter-op threads, OpenCV, and PaddleOCR's `cpu_threads` use the same count.
 
-On an Apple Silicon laptop at 1 thread, the detector takes about 0.45 s per photo and a cold CLI call about 4 to 5 s including model load.
+That pin does not cover the detect call. Ultralytics `select_device("cpu")` sets PyTorch intra-op threads to `min(8, cpu_count - 1)` on every CPU predict. OpenCV stays at `STOCK_NUM_THREADS`. Latency and the cores actually used are in the capacity PDF, not in this default of 1.
 
 ## Environment
 
